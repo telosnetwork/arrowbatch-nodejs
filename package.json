@@ -12,7 +12,8 @@
   "scripts": {
     "bootstrap": "yarn",
     "build": "yarn run bootstrap && tsc",
-    "test": "mocha build/tests/testWriter.spec.js"
+    "test": "mocha --timeout 120000 build/tests/testRW.spec.js",
+    "test-all": "c8 mocha build/tests/test*.spec.js"
   },
   "repository": {
     "type": "git",
@@ -22,6 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "apache-arrow": "^15.0.2",
+    "moment": "^2.30.1",
     "rlp": "^3.0.0",
     "simple-zstd": "^1.4.2",
     "winston": "^3.13.0",

@@ -2,10 +2,11 @@ import {Worker} from "node:worker_threads";
 import path from "node:path";
 import fs, {promises as pfs} from "node:fs";
 
-import {ArrowBatchReader} from "../reader/index.js";
 import {format, Logger, loggers, transports} from "winston";
+
+import {ArrowBatchReader} from "../reader/index.js";
 import {ArrowBatchConfig} from "../types";
-import {ArrowBatchContextDef, generateMappingsFromDefs, genereateReferenceMappings} from "../context.js";
+import {ArrowBatchContextDef} from "../context.js";
 import {isWorkerLogMessage, ROOT_DIR, WorkerLogMessage} from "../utils.js";
 import {WriterControlRequest, WriterControlResponse} from "./worker.js";
 
@@ -14,10 +15,11 @@ export class ArrowBatchWriter extends ArrowBatchReader {
     private _currentWriteBucket: string;
 
     private writeWorkers = new Map<string, {
+        alias: string,
         worker: Worker,
         status: 'running' | 'stopped',
         tid: number,
-        tasks: Map<number, {ref: any, stack: Error}>
+        tasks: Map<number, {ref: any, ogMsg: Partial<WriterControlRequest>, stack: Error}>
     }>();
     private workerLoggers = new Map<string, Logger>();
 
@@ -47,7 +49,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 workerLogger.debug(`logger for worker ${name} initialized with level ${this.config.writerLogLevel}`);
                 this.workerLoggers.set(name, workerLogger);
 
-                let alias = undefined;
+                let alias = name;
                 if (name === 'root' && definition.root.name)
                     alias = definition.root.name;
 
@@ -71,9 +73,10 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     this.writeWorkers.get(name).status = 'stopped';
                 });
                 this.writeWorkers.set(name, {
+                    alias,
                     worker, status: 'running',
                     tid: 0,
-                    tasks: new Map<number, {ref: any, stack: Error}>()
+                    tasks: new Map<number, {ref: any, ogMsg: Partial<WriterControlRequest>, stack: Error}>()
                 });
             });
     }
@@ -88,7 +91,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 `Tried to call method on writer worker but its ${workerInfo.status}`);
 
         const error = new Error();
-        workerInfo.tasks.set(workerInfo.tid, {ref, stack: error});
+        workerInfo.tasks.set(workerInfo.tid, {ref, ogMsg: msg, stack: error});
         msg.tid = workerInfo.tid;
 
         workerInfo.tid++;
@@ -118,8 +121,6 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             throw new Error(
                 `Received msg from writer worker but it has an unexpected status: ${workerInfo.status}`);
 
-        workerInfo.tasks.delete(msg.tid);
-
         if (msg.method === 'flush') {
             const auxBuffs = this._auxiliaryBuffers.get(msg.name);
 
@@ -135,13 +136,34 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             );
             if (isDone) {
                 global.gc && global.gc();
+
+                // if we had wip files, delete them assuming we just wrote that data
+                if (this.wipFilesMap.size > 0) {
+                    for (const wipTablePath of this.wipFilesMap.values())
+                        fs.rmSync(wipTablePath);
+                    this.wipFilesMap.clear();
+                }
+
                 this.events.emit('flush');
             }
         }
+
+        workerInfo.tasks.delete(msg.tid);
     }
 
     async init(startOrdinal: number | bigint) {
         await super.init(startOrdinal);
+
+        // push any rows loaded from wip into writers
+        for (const [tableName, tableBuffer] of this._intermediateBuffers.entries()) {
+            const tableSize = tableBuffer.columns.get([...tableBuffer.columns.keys()][0]).length;
+            for (let i = 0; i < tableSize; i++) {
+                this.sendMessageToWriter(tableName, {
+                    method: 'addRow',
+                    params: this.getBufferRow(tableName, i)
+                });
+            }
+        }
 
         // write context defintion
         await pfs.writeFile(
@@ -161,6 +183,11 @@ export class ArrowBatchWriter extends ArrowBatchReader {
 
     get wipBucketPath(): string {
         return path.join(this.config.dataDir, this._currentWriteBucket + '.wip');
+    }
+
+    getWorkerFilePath(tableName: string, isUnfinished: boolean): string {
+        const worker = this.writeWorkers.get(tableName);
+        return path.join(this.wipBucketPath, `${worker.alias}.ab${isUnfinished ? '.wip' : ''}`);
     }
 
     beginFlush() {
@@ -183,7 +210,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         this._initIntermediate();
 
         // send flush message to writer-workers
-        [...this.tableMappings.keys()].forEach(tableName =>
+        [...this.tableMappings.keys()].forEach(tableName => {
             this.sendMessageToWriter(tableName, {
                 method: 'flush',
                 params: {
@@ -191,7 +218,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     unfinished: isUnfinished
                 }
             })
-        );
+        });
     }
 
     addRow(tableName: string, row: any[], ref?: any) {

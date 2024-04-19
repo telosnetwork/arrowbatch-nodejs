@@ -24,6 +24,7 @@ export interface WriterControlResponse {
     name: string,
     method: string,
     status: 'ok' | 'error',
+    extra?: any,
     error?: any
 }
 
@@ -126,21 +127,36 @@ function flush(msg: WriterControlRequest) {
             // header
             logger.debug(`writing batch to disk...`);
             const startWrite = performance.now();
-            fs.appendFileSync(
-                currentFile, ArrowBatchProtocol.newBatchHeader(BigInt(batchBytes.length), compression));
 
-            // content
-            fs.appendFileSync(currentFile, batchBytes);
-            logger.debug(`${batchBytes.length.toLocaleString()} bytes written to disk, took: ${performance.now() - startWrite}`);
+            // Open the file descriptor
+            const fd = fs.openSync(currentFile, 'a');
+
+            const newSize = fs.fstatSync(fd).size + ArrowBatchProtocol.BATCH_HEADER_SIZE + batchBytes.length;
+            try {
+                // Write the batch header
+                fs.appendFileSync(fd, ArrowBatchProtocol.newBatchHeader(BigInt(batchBytes.length), compression));
+
+                // Write the batch content
+                fs.appendFileSync(fd, batchBytes);
+
+                // Flush the data to disk
+                fs.fsyncSync(fd);
+
+                logger.debug(`${batchBytes.length.toLocaleString()} bytes written to disk, took: ${performance.now() - startWrite}`);
+
+            } finally {
+                // Close the file descriptor
+                fs.closeSync(fd);
+            }
 
             parentPort.postMessage({
                 tid: msg.tid,
                 name: tableName,
                 method: msg.method,
-                status: 'ok'
+                status: 'ok',
+                extra: newSize
             });
         };
-
         switch (compression) {
             case ArrowBatchCompression.UNCOMPRESSED: {
                 write(serializedBatch);

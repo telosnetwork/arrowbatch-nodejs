@@ -22,6 +22,7 @@ export interface ArrowBatchHeader {
 }
 
 export interface ArrowBatchFileMetadata {
+    size: number,
     header: ArrowBatchGlobalHeader,
     batches: {batch: ArrowBatchHeader, start: number, end: number}[]
 }
@@ -124,6 +125,7 @@ export class ArrowBatchProtocol {
         const globalHeader = ArrowBatchProtocol.readGlobalHeader(globalHeaderBuff);
 
         const metadata = {
+            size: fileStat.size,
             header: globalHeader,
             batches: []
         }
@@ -424,7 +426,7 @@ const decodeFunctions = {
     i64: (value: any) => value,
 
     bytes: (bytes: string) => {
-        return Buffer.from(bytes, 'base64').toString('hex');
+        return Buffer.from(bytes, 'base64');
     },
     string: (value: any) => value,
 

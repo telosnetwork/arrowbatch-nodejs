@@ -40,20 +40,38 @@ export interface ReferenceMap {
 
 export interface RowWithRefs {
     row: any[],
-    refs: Map<[string, number], RowWithRefs[]>
+    refs: Map<string, RowWithRefs[]>
 }
 
+export function objectifyRowWithRefs(row: RowWithRefs): object {
+    const refs = {};
+    [...row.refs.entries()].forEach(([key, rows]) => {
+        refs[key] = rows.map(r => objectifyRowWithRefs(r));
+    });
+    return {
+        row: row.row,
+        refs
+    }
+}
 
 export function generateMappingsFromDefs(definition: ArrowBatchContextDef) {
     const rootOrdField: ArrowTableMapping = {name: definition.root.ordinal, type: 'u64'};
     const rootMap = [rootOrdField, ...definition.root.map];
 
-    const mappigns = {
+    const mappings = {
         ...definition.others,
         root: rootMap
     };
 
-    return new Map<string, ArrowTableMapping[]>(Object.entries(mappigns));
+    // dont allow more than one ref per table
+    for (const [tableName, maps] of Object.entries(mappings)) {
+        let refCount = 0;
+        for (const field of maps)
+            if (field.ref && ++refCount > 1)
+                throw new Error(`Multiple references per table not implemented, table ${tableName}, field ${field.name}`);
+    }
+
+    return new Map<string, ArrowTableMapping[]>(Object.entries(mappings));
 }
 
 export function genereateReferenceMappings(tableName: string, tableMappings: Map<string, ArrowTableMapping[]>): ReferenceMap {
@@ -96,6 +114,7 @@ export class ArrowBatchContext {
 
     // updated by reloadOnDiskBuckets, map adjusted num -> table name -> file name
     tableFileMap: Map<number, Map<string, string>>;
+    wipFilesMap: Map<string, string>;
 
     // setup by parsing context definitions, defines data model
     tableMappings: Map<string, ArrowTableMapping[]>;
@@ -136,11 +155,7 @@ export class ArrowBatchContext {
     }
 
     async init(startOrdinal: number | bigint) {
-        try {
-            await pfs.mkdir(this.config.dataDir, {recursive: true});
-        } catch (e) {
-            this.logger.error(e.message);
-        }
+        await pfs.mkdir(this.config.dataDir, {recursive: true});
 
         await this.reloadOnDiskBuckets();
     }
@@ -163,18 +178,28 @@ export class ArrowBatchContext {
     }
 
     private async loadTableFileMap(bucket: string) {
+        const bucketNum = this.bucketToOrdinal(bucket);
         const bucketFullPath = path.join(this.config.dataDir, bucket);
         const tableFiles = (
             await pfs.readdir(
                 path.join(this.config.dataDir, bucket), {withFileTypes: true}))
-            .filter(p => p.isFile() && p.name.endsWith('.ab'))
+            .filter(p => p.isFile() && (p.name.endsWith('.ab')) || p.name.endsWith('.ab.wip'))
             .map(p => p.name);
 
         const tableFilesMap = new Map();
+        const wipFilesMap = new Map();
         for (const tableName of this.tableMappings.keys()) {
             let name = tableName;
             if (name === 'root')
                 name = this.definition.root.name;
+
+            const wipFile = tableFiles.find(file => file == `${name}.ab.wip`);
+            if (wipFile) {
+                wipFilesMap.set(
+                    tableName,
+                    path.join(bucketFullPath, wipFile)
+                );
+            }
 
             const file = tableFiles.find(file => file == `${name}.ab`);
             if (file) {
@@ -184,11 +209,24 @@ export class ArrowBatchContext {
                 );
             }
         }
-        this.tableFileMap.set(this.bucketToOrdinal(bucket), tableFilesMap);
+        this.tableFileMap.set(bucketNum, tableFilesMap);
+
+        // if wip files are found in this bucket
+        if (wipFilesMap.size > 0) {
+            // ensure this is the only bucket wip files are found
+            if (this.wipFilesMap.size > 0)
+                throw new Error(
+                    `Found ${wipFilesMap.size} wip files in bucket ` +
+                    `${bucketNum} but had already found wip files in prev bucket!`
+                );
+
+            this.wipFilesMap = wipFilesMap;
+        }
     }
 
     async reloadOnDiskBuckets() {
         this.tableFileMap = new Map();
+        this.wipFilesMap = new Map();
         const sortNameFn = (a: string, b: string) => {
             const aNum = this.bucketToOrdinal(a);
             const bNum = this.bucketToOrdinal(b);

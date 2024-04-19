@@ -21,9 +21,6 @@ export class ArrowBatchReader extends ArrowBatchContext {
     // auxiliary will get cleared as flush operations finish
     protected _auxiliaryBuffers: RowBuffers = new Map<string, TableBufferInfo>();
 
-    protected _firstTable: Table;
-    protected _lastTable: Table;
-
     private isFirstUpdate: boolean = true;
     private tableCache: ArrowBatchCache;
 
@@ -75,9 +72,43 @@ export class ArrowBatchReader extends ArrowBatchContext {
         this.logger.debug(`initialized buffers for ${[...this._intermediateBuffers.keys()]}`);
     }
 
+    protected _pushRawRow(tableName: string, row: any[]) {
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
+        const tableBuffers = this._intermediateBuffers.get(tableName);
+        const mappings = this.tableMappings.get(tableName);
+        for (const [i, mapping] of mappings.entries())
+            tableBuffers.columns.get(mapping.name).push(decodeRowValue(tableName, mapping, row[i]));
+    }
+
     async init(startOrdinal: number | bigint) {
         await super.init(startOrdinal);
 
+        // wip files found, load unfinished table into buffers and init partially
+        if (this.wipFilesMap.size > 0) {
+            for (const [tableName, tablePath] of this.wipFilesMap.entries()) {
+                const metadata = await ArrowBatchProtocol.readFileMetadata(tablePath);
+
+                if (metadata.batches.length > 1)
+                    throw new Error(`Expected on-disk wip table to have only one batch!`);
+
+                const wipTable = await ArrowBatchProtocol.readArrowBatchTable(
+                    tablePath, metadata, 0);
+
+                // if its root load lastOrdinal from there
+                if (tableName === 'root' && wipTable.numRows > 0) {
+                    const lastRow = wipTable.get(wipTable.numRows - 1).toArray();
+                    this._lastOrdinal = lastRow[0];
+                }
+
+                // load all rows using helper
+                for (let i = 0; i < wipTable.numRows; i++)
+                    this._pushRawRow(tableName, wipTable.get(i).toArray());
+            }
+        }
+
+        // load initial state from disk tables
         if (this.tableFileMap.size > 0) {
             const lowestBucket = [...this.tableFileMap.keys()]
                 .sort()[0];
@@ -94,19 +125,20 @@ export class ArrowBatchReader extends ArrowBatchContext {
             if (firstTable.numRows > 0) {
                 const firstRow = firstTable.get(0).toArray();
                 this._firstOrdinal = firstRow[0];
-                this._firstTable = firstTable;
             }
 
-            const rootLastPath = this.tableFileMap.get(highestBucket).get('root');
-            const lastMetadata = await ArrowBatchProtocol.readFileMetadata(rootLastPath);
-            const lastTable = await ArrowBatchProtocol.readArrowBatchTable(
-                rootLastPath, lastMetadata, lastMetadata.batches.length - 1
-            );
+            // only load if lastOrdinal isnt set, (will be set if loaded wip)
+            if (typeof this._lastOrdinal === 'undefined') {
+                const rootLastPath = this.tableFileMap.get(highestBucket).get('root');
+                const lastMetadata = await ArrowBatchProtocol.readFileMetadata(rootLastPath);
+                const lastTable = await ArrowBatchProtocol.readArrowBatchTable(
+                    rootLastPath, lastMetadata, lastMetadata.batches.length - 1
+                );
 
-            if (lastTable.numRows > 0) {
-                const lastRow = lastTable.get(lastTable.numRows - 1).toArray();
-                this._lastOrdinal = lastRow[0];
-                this._lastTable = lastTable;
+                if (lastTable.numRows > 0) {
+                    const lastRow = lastTable.get(lastTable.numRows - 1).toArray();
+                    this._lastOrdinal = lastRow[0];
+                }
             }
         }
     }
@@ -136,7 +168,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             this._firstOrdinal = this._lastOrdinal;
 
         // maybe start flush
-        if (this.intermediateSize === this.config.dumpSize)
+        if (this.intermediateSize === Number(this.config.dumpSize))
             this.beginFlush();
     }
 
@@ -153,12 +185,12 @@ export class ArrowBatchReader extends ArrowBatchContext {
         return this.getColumn('root', this.definition.root.ordinal, true)[this.auxiliarySize - 1];
     }
 
-    get intermediateSize(): bigint {
-        return BigInt(this.getColumn('root', this.definition.root.ordinal).length);
+    get intermediateSize(): number {
+        return this.getColumn('root', this.definition.root.ordinal).length;
     }
 
     get intermediateLastOrdinal(): bigint {
-        return this.getColumn('root', this.definition.root.ordinal)[this.auxiliarySize - 1];
+        return this.getColumn('root', this.definition.root.ordinal)[this.intermediateSize - 1];
     }
 
     /*
@@ -248,13 +280,13 @@ export class ArrowBatchReader extends ArrowBatchContext {
         const refs = {};
         for (const [tableName, table] of Object.entries(tables.others)) {
 
+            // make sure reference is to selected parent field
+            if (tableName === referencedTable || !(tableName in references) ||
+                references[tableName].childMapping.ref.field !== referencedField.name)
+                continue;
+
             const rows = [];
             refs[tableName] = rows;
-
-            // make sure reference is to selected parent field
-            if (!(tableName in references) ||
-                references[tableName].childMapping.name !== referencedField.name)
-                continue;
 
             const mappings = this.tableMappings.get(tableName);
 
@@ -274,15 +306,13 @@ export class ArrowBatchReader extends ArrowBatchContext {
                 row = mappings.map(
                     (m, j) => decodeRowValue(tableName, m, row[j]));
 
-                if (row[refFieldIndex] === ref)
+                if (row[refFieldIndex] === ref) {
                     rows.push(row);
 
-                if (startIndex == -1)
-                    if (row[refFieldIndex] === ref)
+                    if (startIndex == -1)
                         startIndex = i;
-                    else
-                    if (row[refFieldIndex] !== ref)
-                        break;
+                } else if (startIndex != -1)
+                    break;
             }
         }
 
@@ -295,13 +325,13 @@ export class ArrowBatchReader extends ArrowBatchContext {
         auxiliary: boolean = false
     ): RowWithRefs {
         const references  = this.refMappings.get(tableName);
-        const childRowMap = new Map<[string, number], RowWithRefs[]>();
+        const childRowMap = new Map<string, RowWithRefs[]>();
         for (const [refName, reference] of Object.entries(references)) {
             const refs = this.getRowsFromBufferByRef(
                 tableName, reference.parentMapping, row[reference.parentIndex], auxiliary);
 
             for (const [childName, childRows] of Object.entries(refs)) {
-                const key: [string, number] = [childName, reference.childIndex];
+                const key: string = childName;
                 let rowContainer: RowWithRefs[] = [];
                 if (!childRowMap.has(key))
                     childRowMap.set(key, rowContainer);
@@ -324,13 +354,13 @@ export class ArrowBatchReader extends ArrowBatchContext {
         tables: ArrowCachedTables
     ): RowWithRefs {
         const references  = this.refMappings.get(tableName);
-        const childRowMap = new Map<[string, number], RowWithRefs[]>();
+        const childRowMap = new Map<string, RowWithRefs[]>();
         for (const [refName, reference] of Object.entries(references)) {
             const refs = this.getRowsFromTablesByRef(
                 tableName, reference.parentMapping, row[reference.parentIndex], tables);
 
             for (const [childName, childRows] of Object.entries(refs)) {
-                const key: [string, number] = [childName, reference.childIndex];
+                const key: string = childName;
                 let rowContainer: RowWithRefs[] = [];
                 if (!childRowMap.has(key))
                     childRowMap.set(key, rowContainer);
@@ -347,13 +377,12 @@ export class ArrowBatchReader extends ArrowBatchContext {
         };
     }
 
-    private getBufferRow(tableName: string, index: number, auxiliary: boolean = false) {
+    protected getBufferRow(tableName: string, index: number, auxiliary: boolean = false) {
         const tableBuffers = auxiliary ? this._auxiliaryBuffers : this._intermediateBuffers;
         const mappings = this.tableMappings.get(tableName);
         const tableBuff = tableBuffers.get(tableName);
-        const encodedRow = mappings.map(
+        return mappings.map(
             m => tableBuff.columns.get(m.name)[index]);
-        return encodedRow.map((v, i) => decodeRowValue(tableName, mappings[i], v));
     }
     async getRow(ordinal: bigint): Promise<RowWithRefs> {
         const ordinalField = this.definition.root.ordinal;
@@ -386,14 +415,19 @@ export class ArrowBatchReader extends ArrowBatchContext {
         const tables = await this.tableCache.getTablesFor(ordinal);
 
         if (!(isCachedTables(tables)))
-            throw new Error(`Tables for ordinal ${tables} not found`);
+            throw new Error(`Tables for ordinal ${ordinal} not found`);
 
         // fetch requested row from root table
         const adjustedOrdinal = this.getOrdinal(ordinal);
-        const bucketMetadata = await this.tableCache.getMetadataFor(adjustedOrdinal);
+        const [bucketMetadata, _] = await this.tableCache.getMetadataFor(adjustedOrdinal);
         const relativeIndex = ordinal - bucketMetadata.startOrdinal;
         const tableIndex = Number(relativeIndex % BigInt(this.config.dumpSize));
-        const row = tables.root.get(tableIndex).toArray();
+        const structRow = tables.root.get(tableIndex);
+
+        if (!structRow)
+            throw new Error(`Could not find row ${tableIndex}!`);
+
+        const row = structRow.toArray();
         this.tableMappings.get('root').forEach((m, i) => {
             row[i] = decodeRowValue('root', m, row[i]);
         });
