@@ -81,9 +81,13 @@ describe('read/write', () => {
         // wip bucket should be created & blocks file be present
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
         expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
 
         // no wip blocks file should exist, we wrote full batch
         expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.false;
 
         // no blocks should remain on RAM buffers
         expect(writer.intermediateSize).to.be.equal(0);
@@ -119,7 +123,11 @@ describe('read/write', () => {
         // wip bucket, block file with first batch & block wip file should be present
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
         expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
         expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.true;
 
         // no blocks should remain on RAM buffers
         expect(writer.intermediateSize).to.be.equal(0);
@@ -148,9 +156,13 @@ describe('read/write', () => {
         // wip bucket should be created & blocks file be present
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
         expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
 
         // no wip blocks file should exist, we wrote full batch
         expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.false;
 
         // no blocks should remain on RAM buffers
         expect(writer.intermediateSize).to.be.equal(0);

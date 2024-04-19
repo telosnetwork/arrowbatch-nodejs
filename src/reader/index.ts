@@ -213,15 +213,15 @@ export class ArrowBatchReader extends ArrowBatchContext {
         const references = this.refMappings.get(referencedTable);
 
         const refs = {};
-        for (const [tableName, tableBuff] of Object.entries(tableBuffers)) {
-
-            const rows = [];
-            refs[tableName] = rows;
+        for (const [tableName, tableBuff] of tableBuffers.entries()) {
 
             // make sure reference is to selected parent field
             if (!(tableName in references) ||
-                references[tableName].childMapping.name !== referencedField.name)
+                references[tableName].childMapping.ref.field !== referencedField.name)
                 continue;
+
+            const rows = [];
+            refs[tableName] = rows;
 
             const mappings = this.tableMappings.get(tableName);
 

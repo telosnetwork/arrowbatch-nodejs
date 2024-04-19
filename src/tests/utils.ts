@@ -96,7 +96,7 @@ export class TestChainGenerator {
     static genBlockRow(
         num: bigint,
         timestamp: bigint,
-        txAmountMin: number = 0,
+        txAmountMin: number = 1,
         txAmountMax: number = 5
     ): TestBlockRow {
         return  [
@@ -126,16 +126,15 @@ export class TestChainGenerator {
         if (typeof startTimestamp === 'undefined')
             startTimestamp = this.currentTime();
 
-        const globalTxIndex = 0n;
+        let globalTxIndex = 0n;
         const blockRows: RowWithRefs[] = [];
         for (let i = startBlock; i <= endBlock; i++) {
             const ts = startTimestamp + ((i - startBlock) * BigInt(TestChainGenerator.BLOCK_TIME_MS));
             const row = this.genBlockRow(i, ts);
             const txAmount = row[3];
-            const refs = new Map<string, RowWithRefs[]>();
 
             let actionOrdinal = 0;
-            const txs = [];
+            const txs: RowWithRefs[] = [];
             for (let evmOrdinal = 0; evmOrdinal < txAmount; evmOrdinal++) {
                 const txLogs: RowWithRefs[] = [];
                 for (let j = 0; j < randomInteger(1, 5); j++) {
@@ -148,15 +147,17 @@ export class TestChainGenerator {
                 const tx = this.genTxRow(
                     globalTxIndex, i, actionOrdinal, evmOrdinal);
 
-                txs.push('tx', {
+                txs.push({
                     row: tx,
-                    refs: new Map([['tx', txLogs]])
+                    refs: new Map([['tx_log', txLogs]])
                 });
 
                 if (Math.random() < .8)
                     actionOrdinal++;
+
+                globalTxIndex++;
             }
-            blockRows.push({row, refs});
+            blockRows.push({row, refs: new Map([['tx', txs]])});
         }
 
         const writeRange = (writer: ArrowBatchWriter, from: number, to: number) => {
