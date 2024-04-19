@@ -241,20 +241,18 @@ export class ArrowBatchReader extends ArrowBatchContext {
             const refColumn = tableBuff.columns.get(refField.name);
             const indices = [];
             for (let i = 0; i < refColumn.length; i++) {
-                if (refColumn[i] === ref)
+                if (refColumn[i] === ref) {
                     indices.push(i);
 
-                if (startIndex == -1)
-                    if (refColumn[i] === ref)
+                    if (startIndex == -1)
                         startIndex = i;
-                    else
-                    if (refColumn[i] !== ref)
-                        break;
+                } else if (startIndex != -1)
+                    break;
             }
 
             refs[tableName] = indices.map(
                 i => mappings.map(
-                    m => decodeRowValue(tableName, m, tableBuff.columns.get(m.name)[i])));
+                    m => tableBuff.columns.get(m.name)[i]));
         }
 
         return refs;

@@ -7,10 +7,11 @@ import {
     ArrowBatchConfig,
     ArrowBatchReader,
     ArrowBatchWriter,
-    createLogger, RowWithRefs
+    createLogger, objectifyRowWithRefs, RowWithRefs
 } from '../index.js';
 import {randomHexString, TestChainGenerator, testDataContext, waitEvent} from "./utils.js";
 import {expect} from "chai";
+import * as console from "console";
 
 describe('read/write', () => {
 
@@ -55,6 +56,23 @@ describe('read/write', () => {
         return blocks;
     };
 
+    const compareRange = async (from: number, to: number) => {
+        const read = await readRange(from, to);
+        const actual = testData.slice(from, to + 1);
+
+        // for extra debugging
+        // for (let i = 0; i < read.length; i++) {
+        //     try {
+        //         expect(read[i]).to.be.deep.equal(actual[i]);
+        //     } catch (e) {
+        //         console.log(i);
+        //         throw e;
+        //     }
+        // }
+
+        expect(read).to.be.deep.equal(actual);
+    }
+
     beforeEach(async () => {
         writer = new ArrowBatchWriter(config, testDataContext, logger);
         await writer.init(startBlock);
@@ -94,11 +112,7 @@ describe('read/write', () => {
         expect(writer.auxiliarySize).to.be.equal(0);
 
         // read all blocks and deep compare, should match
-        expect(
-            await readRange(batchStart, batchEnd)
-        ).to.be.deep.equal(
-            testData.slice(batchStart, batchEnd + 1)
-        );
+        await compareRange(Number(startBlock), batchEnd);
     });
 
     it('half write second batch, leave unfinished', async () => {
@@ -134,11 +148,7 @@ describe('read/write', () => {
         expect(writer.auxiliarySize).to.be.equal(0);
 
         // read all blocks and deep compare, should match
-        expect(
-            await readRange(Number(startBlock), batchHalf - 1)
-        ).to.be.deep.equal(
-            testData.slice(Number(startBlock), batchHalf)
-        );
+        await compareRange(Number(startBlock), batchHalf - 1);
     });
 
     it('finish second batch', async () => {
@@ -169,10 +179,6 @@ describe('read/write', () => {
         expect(writer.auxiliarySize).to.be.equal(0);
 
         // read all blocks and deep compare, should match
-        expect(
-            await readRange(Number(startBlock), batchEnd)
-        ).to.be.deep.equal(
-            testData.slice(Number(startBlock), batchEnd + 1)
-        );
+        await compareRange(Number(startBlock), batchEnd);
     });
 });
