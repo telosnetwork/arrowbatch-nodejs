@@ -7,11 +7,10 @@ import {
     ArrowBatchConfig,
     ArrowBatchReader,
     ArrowBatchWriter,
-    createLogger, objectifyRowWithRefs, RowWithRefs
+    createLogger,  RowWithRefs
 } from '../index.js';
 import {randomHexString, TestChainGenerator, testDataContext, waitEvent} from "./utils.js";
 import {expect} from "chai";
-import * as console from "console";
 
 describe('read/write', () => {
 
