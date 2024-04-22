@@ -7,9 +7,9 @@ import {
     ArrowBatchConfig,
     ArrowBatchReader,
     ArrowBatchWriter,
-    createLogger,  RowWithRefs
+    createLogger, RowWithRefs, waitEvent
 } from '../index.js';
-import {randomHexString, TestChainGenerator, testDataContext, waitEvent} from "./utils.js";
+import {randomHexString, TestChainGenerator, testDataContext} from "./utils.js";
 import {expect} from "chai";
 
 describe('read/write', () => {
@@ -47,10 +47,10 @@ describe('read/write', () => {
 
         const blocks = [];
 
-        for (let i = BigInt(from); i <= BigInt(to); i++) {
-            const row = await reader.getRow(i);
+        for await (const row of reader.iter({
+            from: BigInt(from), to: BigInt(to)
+        }))
             blocks.push(row);
-        }
 
         return blocks;
     };

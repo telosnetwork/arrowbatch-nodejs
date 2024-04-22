@@ -7,9 +7,9 @@ import {
     ArrowBatchConfig,
     ArrowBatchReader,
     ArrowBatchWriter,
-    createLogger
+    createLogger, waitEvent
 } from '../index.js';
-import {randomHexString, TestChainGenerator, testDataContext, waitEvent} from "./utils.js";
+import {randomHexString, TestChainGenerator, testDataContext} from "./utils.js";
 import {expect} from "chai";
 
 describe('reader table cache', () => {
@@ -99,7 +99,7 @@ describe('reader table cache', () => {
 
         expect(reader.cacheSize).to.be.equal(1);
         // @ts-ignore
-        const firstMetaTs = reader.cache.metadataCache.get(1).ts;
+        const firstMetaTs = reader.cache.metadataCache.get('1-root').ts;
 
         // add a byte at end of table file to trigger meta update
         fs.appendFileSync(
@@ -112,7 +112,7 @@ describe('reader table cache', () => {
 
         expect(reader.cacheSize).to.be.equal(1);
         // @ts-ignore
-        const secondMetaTs = reader.cache.metadataCache.get(1).ts;
+        const secondMetaTs = reader.cache.metadataCache.get('1-root').ts;
 
         expect(secondMetaTs).to.be.greaterThan(firstMetaTs);
     });

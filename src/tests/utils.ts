@@ -1,12 +1,9 @@
 import crypto from 'node:crypto';
-import EventEmitter from 'node:events';
 
 import moment from "moment";
 
 import {ArrowBatchContextDef, RowWithRefs} from "../context.js";
 import {ArrowBatchWriter} from "../writer";
-import {ArrowBatchConfig} from "../types";
-import {Logger} from "winston";
 
 export function randomBytes(length: number): Buffer {
     return crypto.randomBytes(length);
@@ -18,10 +15,6 @@ export function randomHexString(length: number): string {
 
 export function randomInteger(min: number, max: number): number {
     return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-export async function waitEvent(emitter: EventEmitter, event: string): Promise<void> {
-    return new Promise(resolve => emitter.once(event, resolve));
 }
 
 export const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));

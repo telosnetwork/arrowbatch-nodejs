@@ -21,7 +21,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
     protected _auxiliaryBuffers: RowBuffers = new Map<string, TableBufferInfo>();
 
     private isFirstUpdate: boolean = true;
-    private cache: ArrowBatchCache;
+    protected cache: ArrowBatchCache;
 
     constructor(
         config: ArrowBatchConfig,
@@ -40,7 +40,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
         this.cache = new ArrowBatchCache(this);
 
-        this._intermediateBuffers = this._initBuffer();
+        this._intermediateBuffers = this._createBuffers();
         this._initIntermediate();
     }
 
@@ -52,22 +52,23 @@ export class ArrowBatchReader extends ArrowBatchContext {
         return this._lastOrdinal;
     }
 
-    protected _initBuffer() {
-        const buffers = new Map<string, TableBufferInfo>();
-        for (const [tableName, tableMapping] of this.tableMappings.entries()) {
-            buffers.set(
-                tableName, {columns: new Map<string, any[]>()});
+    protected _createBuffer(tableName: string) {
+        const buffers = {columns: new Map<string, any[]>()};
+        for (const mapping of this.tableMappings.get(tableName))
+            buffers.columns.set(mapping.name, []);
+        return buffers;
+    }
 
-            const tableBuffers = buffers.get(tableName);
-            for (const mapping of tableMapping)
-                tableBuffers.columns.set(mapping.name, []);
-        }
+    protected _createBuffers() {
+        const buffers = new Map<string, TableBufferInfo>();
+        for (const tableName of this.tableMappings.keys())
+            buffers.set(tableName, this._createBuffer(tableName));
         return buffers;
     }
 
     protected _initIntermediate() {
         this._auxiliaryBuffers = this._intermediateBuffers;
-        this._intermediateBuffers = this._initBuffer();
+        this._intermediateBuffers = this._createBuffers();
         this.logger.debug(`initialized buffers for ${[...this._intermediateBuffers.keys()]}`);
     }
 
@@ -420,8 +421,8 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
         // fetch requested row from root table
         const adjustedOrdinal = this.getOrdinal(ordinal);
-        const [bucketMetadata, _] = await this.cache.getMetadataFor(adjustedOrdinal);
-        const relativeIndex = ordinal - bucketMetadata.startOrdinal;
+        const [bucketMetadata, _] = await this.cache.getMetadataFor(adjustedOrdinal, 'root');
+        const relativeIndex = ordinal - bucketMetadata.startRow[0];
         const tableIndex = Number(relativeIndex % BigInt(this.config.dumpSize));
         const structRow = tables.root.get(tableIndex);
 
@@ -436,4 +437,46 @@ export class ArrowBatchReader extends ArrowBatchContext {
         return this.genRowWithRefsFromTables('root', row, tables);
     }
 
+    iter(params: {from: bigint, to: bigint}) : RowScroller {
+        return new RowScroller(this, params);
+    }
+}
+
+export class RowScroller {
+
+    private _isDone: boolean;
+    readonly from: bigint;               // will push rows with ord >= `from`
+    readonly to: bigint;                 // will stop pushing rows when row with ord `to` is reached
+
+    protected reader: ArrowBatchReader;
+
+    private _lastYielded: bigint;
+
+    constructor(
+        reader: ArrowBatchReader,
+        params: {
+            from: bigint,
+            to: bigint
+        }
+    ) {
+        this.reader = reader;
+        this.from = params.from;
+        this.to = params.to;
+        this._lastYielded = this.from - 1n;
+    }
+
+    async nextResult(): Promise<RowWithRefs> {
+        const nextBlock = this._lastYielded + 1n;
+        const row = await this.reader.getRow(nextBlock);
+        this._lastYielded = nextBlock;
+        this._isDone = this._lastYielded == this.to;
+        return row;
+    }
+
+    async *[Symbol.asyncIterator](): AsyncIterableIterator<RowWithRefs> {
+        do {
+            const row = await this.nextResult();
+            yield row;
+        } while (!this._isDone)
+    }
 }

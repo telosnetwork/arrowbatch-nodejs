@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import {format, LogEntry, loggers, transports} from "winston";
 import Transport from "winston-transport";
 import {ZSTDCompress} from 'simple-zstd';
+import EventEmitter from "node:events";
 
 
 // currentDir == build/ dir
@@ -139,4 +140,8 @@ export function createLogger(name: string, logLevel: string) {
         ]
     }
     return loggers.add(name, loggingOptions);
+}
+
+export async function waitEvent(emitter: EventEmitter, event: string): Promise<void> {
+    return new Promise(resolve => emitter.once(event, resolve));
 }

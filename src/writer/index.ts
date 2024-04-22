@@ -6,9 +6,10 @@ import {format, Logger, loggers, transports} from "winston";
 
 import {ArrowBatchReader} from "../reader/index.js";
 import {ArrowBatchConfig} from "../types";
-import {ArrowBatchContextDef} from "../context.js";
-import {isWorkerLogMessage, ROOT_DIR, WorkerLogMessage} from "../utils.js";
+import {ArrowBatchContextDef, RowBuffers} from "../context.js";
+import {isWorkerLogMessage, ROOT_DIR, waitEvent, WorkerLogMessage} from "../utils.js";
 import {WriterControlRequest, WriterControlResponse} from "./worker.js";
+import {ArrowTableMapping} from "../protocol";
 
 export class ArrowBatchWriter extends ArrowBatchReader {
 
@@ -19,6 +20,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         worker: Worker,
         status: 'running' | 'stopped',
         tid: number,
+        ackTid: number,
         tasks: Map<number, {ref: any, ogMsg: Partial<WriterControlRequest>, stack: Error}>
     }>();
     private workerLoggers = new Map<string, Logger>();
@@ -76,6 +78,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     alias,
                     worker, status: 'running',
                     tid: 0,
+                    ackTid: -1,
                     tasks: new Map<number, {ref: any, ogMsg: Partial<WriterControlRequest>, stack: Error}>()
                 });
             });
@@ -121,6 +124,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             throw new Error(
                 `Received msg from writer worker but it has an unexpected status: ${workerInfo.status}`);
 
+        workerInfo.ackTid = msg.tid;
+
         if (msg.method === 'flush') {
             const auxBuffs = this._auxiliaryBuffers.get(msg.name);
 
@@ -144,11 +149,17 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     this.wipFilesMap.clear();
                 }
 
-                this.events.emit('flush');
+                this.reloadOnDiskBuckets().then(() => this.events.emit('flush'));
             }
         }
 
         workerInfo.tasks.delete(msg.tid);
+
+        const allWorkersReady = [...this.writeWorkers.values()]
+            .every(w => w.ackTid == w.tid - 1);
+
+        if (allWorkersReady)
+            this.events.emit('workers-ready')
     }
 
     async init(startOrdinal: number | bigint) {
@@ -237,5 +248,124 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             method: 'addRow',
             params: row
         }, ref);
+    }
+
+    private async trimOnBuffers(ordinal: bigint) {
+        const recursiveBufferTrim = (
+            table: string, ref: any, refField: ArrowTableMapping
+        ) => {
+            const references = this.refMappings.get(table);
+
+            const refColumn = this._intermediateBuffers
+                .get(table).columns.get(refField.name);
+
+            let trimIdx = 0;
+            for (const val of refColumn) {
+                if (val === ref)
+                    break;
+                trimIdx++;
+            }
+
+            if (trimIdx == refColumn.length) {
+                this._intermediateBuffers.set(table, this._createBuffer(table));
+                return;
+            }
+
+            const row = this.getBufferRow(table, trimIdx);
+
+            for (const [childName, childRefInfo] of Object.entries(references))
+                recursiveBufferTrim(childName, row[childRefInfo.parentIndex], childRefInfo.childMapping);
+
+            this.sendMessageToWriter(table, {
+                method: 'trim',
+                params: { idx: trimIdx }
+            });
+
+            this.tableMappings.get(table).forEach(m =>
+                this._intermediateBuffers.get(table).columns.get(m.name).splice(trimIdx)
+            );
+        };
+
+        recursiveBufferTrim('root', ordinal, this.tableMappings.get('root')[0]);
+        await waitEvent(this.events, 'workers-ready');
+    }
+    private async trimOnDisk(ordinal: bigint) {
+        const adjustedOrdinal = this.getOrdinal(ordinal);
+
+        // delete every bucket bigger than adjustedOrdinal
+        const bucketDeleteList = [...this.tableFileMap.keys()]
+            .sort()
+            .reverse()
+            .filter(bucket => bucket > adjustedOrdinal);
+
+        await Promise.all(bucketDeleteList.map(bucket => pfs.rm(
+            path.dirname(this.tableFileMap.get(bucket).get('root')),
+            {recursive: true}
+        )));
+
+        const [bucketMetadata, _] = await this.cache.getMetadataFor(adjustedOrdinal, 'root');
+
+        // trim idx relative to bucket start
+        const relativeIndex = ordinal - bucketMetadata.startRow[0];
+
+        // table index might need to be loaded into buffers & be partially edited
+        // everything after table index can be deleted
+        const tableIndex = Number(relativeIndex % BigInt(this.config.dumpSize));
+
+        if (tableIndex >= bucketMetadata.meta.batches.length)
+            return;
+
+        // truncate files from next table onwards
+        await Promise.all(
+            [...this.tableMappings.keys()]
+                .map(table => this.cache.getMetadataFor(adjustedOrdinal, table).then(
+                    ([meta, _]) => {
+                        const tableIndexEnd = meta.meta.batches[tableIndex].end;
+                        const fileName = this.tableFileMap.get(adjustedOrdinal).get(table);
+                        return pfs.truncate(fileName, tableIndexEnd + 1);
+                    })));
+
+        // unwrap adjustedOrdinal:tableIndex table into fresh intermediate
+        this._intermediateBuffers = this._createBuffers();
+        const tables = await this.cache.getTablesFor(ordinal);
+
+        Object.entries(
+            {root: tables.root, ...tables.others}
+        ).forEach(([tableName, table]) => {
+            for (let i = 0; i < table.numRows; i++)
+                this._pushRawRow(tableName, table.get(i).toArray());
+        });
+
+        // use trim buffers helper
+        await this.trimOnBuffers(ordinal);
+    }
+
+    async trimFrom(ordinal: bigint) {
+        // make sure all workers are idle
+        await waitEvent(this.events, 'workers-ready');
+
+        // if trimming for further back than known first ord, reset all state vars
+        if (ordinal <= this.firstOrdinal) {
+            this._firstOrdinal = null;
+            this._lastOrdinal = null;
+        } else
+            this._lastOrdinal = ordinal - 1n;  // if trim is within written range, set state to ord - 1
+
+        const rootInterBuffs = this._intermediateBuffers.get('root');
+        const ordinalField = this.definition.root.ordinal;
+
+        // if only have to trim buffers
+        if (rootInterBuffs.columns.get(ordinalField).length > 0) {
+            const oldestOnIntermediate = rootInterBuffs.columns.get(ordinalField)[0];
+            const isOnIntermediate = ordinal >= oldestOnIntermediate
+            if (isOnIntermediate) {
+                await this.trimOnBuffers(ordinal);
+                return;
+            }
+        }
+
+        // if need to hit disk tables
+        await this.trimOnDisk(ordinal);
+        await this.reloadOnDiskBuckets();
     }
 }

@@ -5,11 +5,9 @@ import {ArrowBatchContext} from "./context.js";
 import moment from "moment";
 
 
-export type CacheKey = string;  // `${adjustedOrd}-${batchIdx}`
-
 export interface ArrowMetaCacheEntry {
     ts: number,
-    meta: ArrowBatchFileMetadata, startOrdinal: bigint
+    meta: ArrowBatchFileMetadata, startRow: any[]
 }
 
 export interface ArrowCachedTables {
@@ -30,10 +28,10 @@ export class ArrowBatchCache {
 
     private ctx: ArrowBatchContext;
 
-    private tableCache = new Map<CacheKey, ArrowCachedTables>();
-    private cacheOrder: CacheKey[] = [];
+    private tableCache = new Map<string, ArrowCachedTables>();
+    private cacheOrder: string[] = [];
 
-    private metadataCache = new Map<number, ArrowMetaCacheEntry>();
+    private metadataCache = new Map<string, ArrowMetaCacheEntry>();
 
     readonly dataDir: string;
 
@@ -41,27 +39,29 @@ export class ArrowBatchCache {
         this.ctx = ctx;
     }
 
-    async getMetadataFor(adjustedOrdinal: number): Promise<[ArrowMetaCacheEntry, boolean]> {
-        const filePath = this.ctx.tableFileMap.get(adjustedOrdinal).get('root');
+    async getMetadataFor(adjustedOrdinal: number, tableName: string): Promise<[ArrowMetaCacheEntry, boolean]> {
+        const filePath = this.ctx.tableFileMap.get(adjustedOrdinal).get(tableName);
         const meta = await ArrowBatchProtocol.readFileMetadata(filePath);
 
-        if (this.metadataCache.has(adjustedOrdinal)) {
+        const cacheKey = `${adjustedOrdinal}-${tableName}`
+
+        if (this.metadataCache.has(cacheKey)) {
             // we might need to invalidate our metadata if file size changed
-            const cachedMeta  = this.metadataCache.get(adjustedOrdinal);
+            const cachedMeta  = this.metadataCache.get(cacheKey);
             if (cachedMeta.meta.size === meta.size)
                 return [cachedMeta, false];  // size hasnt change, return cache
 
             // invalidate and re-calculate
-            this.metadataCache.delete(adjustedOrdinal);
+            this.metadataCache.delete(cacheKey);
         }
 
         const firstTable = await ArrowBatchProtocol.readArrowBatchTable(
             filePath, meta, 0);
 
-        const startOrdinal: bigint = firstTable.get(0).toArray()[0];
+        const startRow = firstTable.get(0).toArray();
 
-        const result = { ts: moment.now(), meta, startOrdinal };
-        this.metadataCache.set(adjustedOrdinal, result);
+        const result = { ts: moment.now(), meta, startRow };
+        this.metadataCache.set(cacheKey, result);
         return [result, true];
     }
 
@@ -89,15 +89,15 @@ export class ArrowBatchCache {
         // metadata about the bucket we are going to get tables for, mostly need to
         // figure out start ordinal for math to make sense in case non-aligned bucket
         // boundary start
-        const [bucketMetadata, metadataUpdated] = await this.getMetadataFor(adjustedOrdinal);
+        const [bucketMetadata, metadataUpdated] = await this.getMetadataFor(adjustedOrdinal, 'root');
 
         // index relative to bucket boundary
-        const relativeIndex = ordinal - bucketMetadata.startOrdinal;
+        const relativeIndex = ordinal - bucketMetadata.startRow[0];
 
         // get batch table index, assuming config.dumpSize table size is respected
         const batchIndex = Number(relativeIndex / BigInt(this.ctx.config.dumpSize));
 
-        const cacheKey: CacheKey = `${adjustedOrdinal}-${batchIndex}`;
+        const cacheKey = `${adjustedOrdinal}-${batchIndex}`;
 
         if (this.tableCache.has(cacheKey)) {
             // we have this tables cached, but only return if metadata wasnt invalidated

@@ -15,7 +15,7 @@ const streamBuffer = Buffer.alloc(DEFAULT_STREAM_BUF_MEM);
 
 export interface WriterControlRequest {
     tid: number
-    method: 'addRow' | 'flush'
+    method: 'addRow' | 'flush' | 'trim'
     params?: any
 }
 
@@ -102,6 +102,11 @@ async function serializeTable(table: Table): Promise<Uint8Array> {
 }
 
 function flush(msg: WriterControlRequest) {
+    /*
+     * params:
+     *     - unfinished: boolean -> is this a .wip or not?
+     *     - writeDir: string -> bucket dir path
+     */
     if (intermediateSize == 0)
         return;
 
@@ -175,6 +180,9 @@ function flush(msg: WriterControlRequest) {
 }
 
 function addRow(msg: WriterControlRequest) {
+    /*
+     * params: row to write
+     */
     const typedRow = tableMappings.map(
         (fieldInfo, index) => {
             try {
@@ -201,8 +209,26 @@ function addRow(msg: WriterControlRequest) {
     });
 }
 
+function trim(msg: WriterControlRequest) {
+    /*
+     * params:
+     *     - trimIdx: number -> index to delete from <=
+     */
+    for (const mapping of tableMappings)
+        intermediateBuffers[mapping.name].splice(msg.params.trimIdx);
+
+    intermediateSize = intermediateBuffers[tableMappings[0].name].length;
+
+    parentPort.postMessage({
+        tid: msg.tid,
+        name: tableName,
+        method: msg.method,
+        status: 'ok'
+    });
+}
+
 const handlers = {
-    addRow, flush
+    addRow, flush, trim
 };
 
 _initBuffer();
