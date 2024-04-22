@@ -110,7 +110,7 @@ export class ArrowBatchContext {
     definition: ArrowBatchContextDef;
     readonly logger: Logger;
 
-    events = new EventEmitter();
+    events: EventEmitter = new EventEmitter();
 
     // updated by reloadOnDiskBuckets, map adjusted num -> table name -> file name
     tableFileMap: Map<number, Map<string, string>>;
