@@ -41,7 +41,7 @@ export class ArrowBatchProtocol {
      *
      * file map:
      *
-     *     global header: version constant + batch size (uint64) + total batch count (uint64)
+     *     global header: version constant
      *
      *     batch #0 header: batch header constant + batch byte size (uint64) + compression (uint8)
      *     arrow random access file bytes...
@@ -256,10 +256,11 @@ const validationFunctions = {
         return false;
     },
 
-    bytes:  (value: any) => {
+    bytes: (value: any) => {
         return typeof value === 'string' ||
             value instanceof Uint8Array ||
-            value instanceof Buffer;
+            value instanceof Buffer ||
+            (Array.isArray(value) && value.every(num => typeof num === 'number' && num >= 0 && num <= 255));
     },
     string: (value: any) => typeof value === 'string',
     checksum160: (value: any) => {
@@ -329,9 +330,11 @@ const encodeFunctions = {
                 value = value.substring(2);
             typedValue = Buffer.from(value, 'hex');
             valByteLength /= 2;
-
-        } else if (value instanceof Uint8Array)
+        } else if (value instanceof Uint8Array) {
             typedValue = Buffer.from(value);
+        } else if (Array.isArray(value)) {
+            typedValue = Buffer.from(value);
+        }
 
         if (fieldInfo.length && valByteLength != fieldInfo.length)
             throw new Error(
