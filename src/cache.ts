@@ -2,11 +2,13 @@ import {Table} from "apache-arrow";
 
 import {ArrowBatchFileMetadata, ArrowBatchProtocol} from "./protocol.js";
 import {ArrowBatchContext} from "./context.js";
+import moment from "moment";
 
 
 export type CacheKey = string;  // `${adjustedOrd}-${batchIdx}`
 
 export interface ArrowMetaCacheEntry {
+    ts: number,
     meta: ArrowBatchFileMetadata, startOrdinal: bigint
 }
 
@@ -58,7 +60,7 @@ export class ArrowBatchCache {
 
         const startOrdinal: bigint = firstTable.get(0).toArray()[0];
 
-        const result = { meta, startOrdinal };
+        const result = { ts: moment.now(), meta, startOrdinal };
         this.metadataCache.set(adjustedOrdinal, result);
         return [result, true];
     }
@@ -122,16 +124,19 @@ export class ArrowBatchCache {
             if (table instanceof Table)
                 tables.others[tableName] = table;
 
+        this.tableCache.set(cacheKey, tables);
+        this.cacheOrder.push(cacheKey);
+
         // maybe trim cache
         if (this.tableCache.size > ArrowBatchCache.DEFAULT_TABLE_CACHE) {
             const oldest = this.cacheOrder.shift();
             this.tableCache.delete(oldest);
         }
 
-        this.tableCache.set(cacheKey, tables);
-        this.cacheOrder.push(cacheKey);
-
         return tables;
     }
 
+    get size() : number {
+        return this.tableCache.size;
+    }
 }

@@ -12,7 +12,6 @@
   "scripts": {
     "bootstrap": "yarn",
     "build": "yarn run bootstrap && tsc",
-    "test": "mocha --timeout 120000 build/tests/testRW.spec.js",
     "test-all": "c8 mocha build/tests/test*.spec.js"
   },
   "repository": {

@@ -234,7 +234,8 @@ export class ArrowBatchContext {
                 return -1;
             if (aNum > bNum)
                 return 1;
-            return 0;
+
+            throw new Error(`Error sorting bucket dirs, found duplicates!`);
         };
 
         const bucketDirs = (

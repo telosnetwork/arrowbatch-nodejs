@@ -1,5 +1,4 @@
 import {Logger} from "winston";
-import {Table} from "apache-arrow";
 
 import {ArrowBatchProtocol, ArrowTableMapping, decodeRowValue} from "../protocol.js";
 import {ArrowBatchConfig} from "../types.js";
@@ -22,7 +21,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
     protected _auxiliaryBuffers: RowBuffers = new Map<string, TableBufferInfo>();
 
     private isFirstUpdate: boolean = true;
-    private tableCache: ArrowBatchCache;
+    private cache: ArrowBatchCache;
 
     constructor(
         config: ArrowBatchConfig,
@@ -39,7 +38,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
                     tableName, genereateReferenceMappings(tableName, this.tableMappings));
         }
 
-        this.tableCache = new ArrowBatchCache(this);
+        this.cache = new ArrowBatchCache(this);
 
         this._intermediateBuffers = this._initBuffer();
         this._initIntermediate();
@@ -191,6 +190,10 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     get intermediateLastOrdinal(): bigint {
         return this.getColumn('root', this.definition.root.ordinal)[this.intermediateSize - 1];
+    }
+
+    get cacheSize(): number {
+        return this.cache.size;
     }
 
     /*
@@ -410,14 +413,14 @@ export class ArrowBatchReader extends ArrowBatchContext {
         }
 
         // is row on disk?
-        const tables = await this.tableCache.getTablesFor(ordinal);
+        const tables = await this.cache.getTablesFor(ordinal);
 
         if (!(isCachedTables(tables)))
             throw new Error(`Tables for ordinal ${ordinal} not found`);
 
         // fetch requested row from root table
         const adjustedOrdinal = this.getOrdinal(ordinal);
-        const [bucketMetadata, _] = await this.tableCache.getMetadataFor(adjustedOrdinal);
+        const [bucketMetadata, _] = await this.cache.getMetadataFor(adjustedOrdinal);
         const relativeIndex = ordinal - bucketMetadata.startOrdinal;
         const tableIndex = Number(relativeIndex % BigInt(this.config.dumpSize));
         const structRow = tables.root.get(tableIndex);
