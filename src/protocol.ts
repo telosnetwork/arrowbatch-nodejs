@@ -434,10 +434,10 @@ const decodeFunctions = {
     string: (value: any) => value,
 
     checksum160: (bytes: string) => {
-        return Buffer.from(bytes, 'base64').toString('hex');
+        return Buffer.from(bytes, 'base64');
     },
     checksum256: (bytes: string) => {
-        return Buffer.from(bytes, 'base64').toString('hex');
+        return Buffer.from(bytes, 'base64');
     }
 };
 

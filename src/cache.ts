@@ -76,6 +76,9 @@ export class ArrowBatchCache {
             return [tableName, null];
 
         const metadata = await ArrowBatchProtocol.readFileMetadata(filePath);
+        if (batchIndex >= metadata.batches.length)
+            return [tableName, null];
+
         return [
             tableName,
             await ArrowBatchProtocol.readArrowBatchTable(
