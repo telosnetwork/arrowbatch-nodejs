@@ -232,7 +232,7 @@ describe('bytefields encode/decode', () => {
         const value = '0123456789abcdef0123456789abcdef01234567';
         const encoded = encodeRowValue(tableName, fieldInfo, value);
         const decoded = decodeRowValue(tableName, fieldInfo, encoded);
-        expect(decoded).to.be.equal(value);
+        expect(decoded).to.be.deep.equal(Buffer.from(value, 'hex'));
     });
 
     it('should encode and decode checksum256', () => {
@@ -240,6 +240,6 @@ describe('bytefields encode/decode', () => {
         const value = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
         const encoded = encodeRowValue(tableName, fieldInfo, value);
         const decoded = decodeRowValue(tableName, fieldInfo, encoded);
-        expect(decoded).to.be.equal(value);
+        expect(decoded).to.be.deep.equal(Buffer.from(value, 'hex'));
     });
 });

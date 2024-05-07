@@ -50,11 +50,11 @@ export const testDataContext: ArrowBatchContextDef = {
 };
 
 
-export type TestBlockRow = [bigint, bigint, string, number];
+export type TestBlockRow = [bigint, bigint, Buffer | string, number];
 
-export type TestTxRow = [string, bigint, bigint, number, number, Buffer];
+export type TestTxRow = [string | Buffer, bigint, bigint, number, number, Buffer];
 
-export type TestTxLogRow = [bigint, number, string];
+export type TestTxLogRow = [bigint, number, string | Buffer];
 
 export class TestChainGenerator {
 
@@ -66,7 +66,7 @@ export class TestChainGenerator {
         return [
             globalTxIdx,
             logIndex,
-            randomHexString(40)
+            randomBytes(20)
         ];
     }
 
@@ -77,7 +77,7 @@ export class TestChainGenerator {
         evmOrdinal: number
     ): TestTxRow {
         return [
-            randomHexString(64),
+            randomBytes(32),
             globalTxIdx,
             block,
             actionOrdinal,
@@ -95,7 +95,7 @@ export class TestChainGenerator {
         return  [
             num,
             timestamp,
-            randomHexString(64),
+            randomBytes(32),
             randomInteger(txAmountMin, txAmountMax)
         ]
     }
