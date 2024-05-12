@@ -107,9 +107,6 @@ function flush(msg: WriterControlRequest) {
      *     - unfinished: boolean -> is this a .wip or not?
      *     - writeDir: string -> bucket dir path
      */
-    if (intermediateSize == 0)
-        return;
-
     const fileName = `${alias ?? tableName}.ab${msg.params.unfinished ? '.wip' : ''}`;
     const currentFile = path.join(msg.params.writeDir, fileName);
 
@@ -174,6 +171,9 @@ function flush(msg: WriterControlRequest) {
                     write(bytes);
                 });
                 break;
+            }
+            default: {
+                throw new Error(`Unknown compression format ${compression}`);
             }
         }
     });
