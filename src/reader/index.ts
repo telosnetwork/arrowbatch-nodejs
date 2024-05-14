@@ -327,6 +327,19 @@ export class ArrowBatchReader extends ArrowBatchContext {
         auxiliary: boolean = false
     ): RowWithRefs {
         const references  = this.refMappings.get(tableName);
+        const processedRefs = new Set();
+        const uniqueRefs = [];
+        Object.values(references).forEach(val => {
+            const parentInfo = {
+                index: val.parentIndex,
+                mapping: val.parentMapping
+            };
+            if (!processedRefs.has(JSON.stringify(parentInfo))) {
+                processedRefs.add(JSON.stringify(parentInfo));
+                uniqueRefs.push(val);
+            }
+        });
+
         const childRowMap = new Map<string, RowWithRefs[]>();
         for (const [refName, reference] of Object.entries(references)) {
             const refs = this.getRowsFromBufferByRef(
@@ -356,8 +369,21 @@ export class ArrowBatchReader extends ArrowBatchContext {
         tables: ArrowCachedTables
     ): RowWithRefs {
         const references  = this.refMappings.get(tableName);
+        const processedRefs = new Set();
+        const uniqueRefs = [];
+        Object.values(references).forEach(val => {
+            const parentInfo = {
+                index: val.parentIndex,
+                mapping: val.parentMapping
+            };
+            if (!processedRefs.has(JSON.stringify(parentInfo))) {
+                processedRefs.add(JSON.stringify(parentInfo));
+                uniqueRefs.push(val);
+            }
+        });
+
         const childRowMap = new Map<string, RowWithRefs[]>();
-        for (const [refName, reference] of Object.entries(references)) {
+        for (const reference of uniqueRefs) {
             const refs = this.getRowsFromTablesByRef(
                 tableName, reference.parentMapping, row[reference.parentIndex], tables);
 
