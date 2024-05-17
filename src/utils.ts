@@ -145,3 +145,12 @@ export function createLogger(name: string, logLevel: string) {
 export async function waitEvent(emitter: EventEmitter, event: string): Promise<void> {
     return new Promise(resolve => emitter.once(event, resolve));
 }
+
+export function extendedStringify(obj: any): string {
+    return JSON.stringify(obj, (key, value) => {
+        if (typeof value === "bigint") {
+            return value.toString();
+        }
+        return value;
+    })
+}

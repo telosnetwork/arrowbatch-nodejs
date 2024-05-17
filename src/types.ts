@@ -18,6 +18,7 @@ const BigIntSchema = z.union([
 });
 
 export const ArrowBatchConfigSchema = z.object({
+    wsHost: z.string(), wsPort: z.number(),
     dataDir: z.string(),
     writerLogLevel: z.string().optional(),
     bucketSize: BigIntSchema,

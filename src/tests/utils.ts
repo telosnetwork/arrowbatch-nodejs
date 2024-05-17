@@ -156,17 +156,7 @@ export class TestChainGenerator {
         const writeRange = (writer: ArrowBatchWriter, from: number, to: number) => {
             for (let i = from; i <= to; i++) {
                 const block = blockRows[i];
-                const txRefs = block.refs.get('tx') ?? [];
-
-                for (const tx of txRefs) {
-                    const txLogRefs = tx.refs.get('tx_log') ?? [];
-
-                    for (const txLog of txLogRefs)
-                        writer.addRow('tx_log', txLog.row, txLog.row);
-
-                    writer.addRow('tx', tx.row, block.row);
-                }
-                writer.addRow('block', block.row, block.row);
+                writer.pushRow('block', block);
 
                 writer.updateOrdinal(i);
             }

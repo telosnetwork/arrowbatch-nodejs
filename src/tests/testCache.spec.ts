@@ -28,6 +28,7 @@ describe('reader table cache', () => {
     ] = TestChainGenerator.genTestData(startBlock, endBlock);
 
     const config: ArrowBatchConfig = {
+        wsHost: '127.0.0.1', wsPort: 4200,
         dataDir: tmpDataDir,
         compression: ArrowBatchCompression.ZSTD,
         writerLogLevel: 'info',

@@ -6,10 +6,11 @@ import {format, Logger, loggers, transports} from "winston";
 
 import {ArrowBatchReader} from "../reader/index.js";
 import {ArrowBatchConfig} from "../types";
-import {ArrowBatchContextDef, RowBuffers} from "../context.js";
+import {ArrowBatchContextDef, RowWithRefs} from "../context.js";
 import {isWorkerLogMessage, ROOT_DIR, waitEvent, WorkerLogMessage} from "../utils.js";
 import {WriterControlRequest, WriterControlResponse} from "./worker.js";
-import {ArrowTableMapping} from "../protocol";
+import {ArrowTableMapping} from "../protocol.js";
+import ArrowBatchBroadcaster from "../broadcast.js";
 
 export class ArrowBatchWriter extends ArrowBatchReader {
 
@@ -24,6 +25,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         tasks: Map<number, {ref: any, ogMsg: Partial<WriterControlRequest>, stack: Error}>
     }>();
     private workerLoggers = new Map<string, Logger>();
+
+    private readonly broadcaster: ArrowBatchBroadcaster;
 
     constructor(
         config: ArrowBatchConfig,
@@ -82,6 +85,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     tasks: new Map<number, {ref: any, ogMsg: Partial<WriterControlRequest>, stack: Error}>()
                 });
             });
+
+        this.broadcaster = new ArrowBatchBroadcaster(this, logger);
     }
 
     private sendMessageToWriter(name: string, msg: Partial<WriterControlRequest>, ref?: any) {
@@ -183,6 +188,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         );
 
         this._currentWriteBucket = this.getOrdinalSuffix(this._lastOrdinal ?? startOrdinal);
+
+        this.broadcaster.initUWS();
     }
 
     async deinit() {
@@ -190,6 +197,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             [...this.writeWorkers.values()]
                 .map(workerInfo => workerInfo.worker.terminate())
         );
+
+        this.broadcaster.close();
     }
 
     get wipBucketPath(): string {
@@ -232,7 +241,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         });
     }
 
-    addRow(tableName: string, row: any[], ref?: any) {
+    private addRow(tableName: string, row: any[], ref?: any) {
         if (tableName === this.definition.root.name)
             tableName = 'root';
 
@@ -248,6 +257,20 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             method: 'addRow',
             params: row
         }, ref);
+    }
+
+    pushRow(tableName: string, row: RowWithRefs) {
+        for (let [tName, rows] of row.refs.entries()) {
+            rows.forEach(r => this.pushRow(tName, r));
+        }
+
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
+        this.addRow(tableName, row.row);
+
+        if (tableName === 'root')
+            this.broadcaster.broadcastRow(row);
     }
 
     private async trimOnBuffers(ordinal: bigint) {

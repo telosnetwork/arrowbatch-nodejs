@@ -10,7 +10,7 @@ import {ArrowBatchCompression, ArrowBatchProtocol, ArrowTableMapping, encodeRowV
 
 import {compressUint8Array, MemoryWriteStream, WorkerTransport} from "../utils.js";
 
-const DEFAULT_STREAM_BUF_MEM = 30 * 1024 * 1024;
+const DEFAULT_STREAM_BUF_MEM = 128 * 1024 * 1024;
 const streamBuffer = Buffer.alloc(DEFAULT_STREAM_BUF_MEM);
 
 export interface WriterControlRequest {
