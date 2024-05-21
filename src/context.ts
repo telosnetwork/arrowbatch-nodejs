@@ -20,13 +20,20 @@ export type RowBuffers = Map<
     TableBufferInfo
 >;
 
+export interface ArrowBatchTableDef {
+    map: ArrowTableMapping[],
+    streamSize?: string | number
+}
+
 export interface ArrowBatchContextDef {
     root: {
         name?: string;
         ordinal: string;
         map: ArrowTableMapping[];
     },
-    others: {[key: string]: ArrowTableMapping[]}
+    others: {
+        [key: string]: ArrowBatchTableDef
+    }
 }
 
 export interface ReferenceMap {
@@ -60,31 +67,31 @@ export function generateMappingsFromDefs(definition: ArrowBatchContextDef) {
 
     const mappings = {
         ...definition.others,
-        root: rootMap
+        root: {...definition.root, map: rootMap}
     };
 
     // dont allow more than one ref per table
-    for (const [tableName, maps] of Object.entries(mappings)) {
+    for (const [tableName, tableDef] of Object.entries(mappings)) {
         let refCount = 0;
-        for (const field of maps)
+        for (const field of tableDef.map)
             if (field.ref && ++refCount > 1)
                 throw new Error(`Multiple references per table not implemented, table ${tableName}, field ${field.name}`);
     }
 
-    return new Map<string, ArrowTableMapping[]>(Object.entries(mappings));
+    return new Map<string, ArrowBatchTableDef>(Object.entries(mappings));
 }
 
-export function genereateReferenceMappings(tableName: string, tableMappings: Map<string, ArrowTableMapping[]>): ReferenceMap {
+export function genereateReferenceMappings(tableName: string, tableMappings: Map<string, ArrowBatchTableDef>): ReferenceMap {
     const refs: ReferenceMap = {};
 
-    const mapping: ArrowTableMapping[] = tableMappings.get(tableName);
+    const mapping: ArrowTableMapping[] = tableMappings.get(tableName).map;
 
     for (const [refName, refMapping] of tableMappings.entries()) {
-        const childIndex = refMapping.findIndex(
+        const childIndex = refMapping.map.findIndex(
             m => m.ref && m.ref.table === tableName);
 
         if (childIndex != -1) {
-            const childMapping = refMapping.at(childIndex);
+            const childMapping = refMapping.map.at(childIndex);
             const parentIndex = mapping.findIndex(
                 m => m.name === childMapping.ref.field);
             const parentMapping = mapping.at(parentIndex);
@@ -102,9 +109,8 @@ export function genereateReferenceMappings(tableName: string, tableMappings: Map
     return refs;
 }
 
+
 export class ArrowBatchContext {
-    static readonly DEFAULT_BUCKET_SIZE = BigInt(1e7);
-    static readonly DEFAULT_DUMP_SIZE = BigInt(1e5);
 
     readonly config: ArrowBatchConfig;
     definition: ArrowBatchContextDef;
@@ -117,7 +123,7 @@ export class ArrowBatchContext {
     wipFilesMap: Map<string, string>;
 
     // setup by parsing context definitions, defines data model
-    tableMappings: Map<string, ArrowTableMapping[]>;
+    tableMappings: Map<string, ArrowBatchTableDef>;
 
     // setup by parsing context definitions, metadata for references in tables
     refMappings = new Map<string, ReferenceMap>();
@@ -131,15 +137,6 @@ export class ArrowBatchContext {
     ) {
         this.config = config;
         this.logger = logger;
-
-        if (!this.config.writerLogLevel)
-            this.config.writerLogLevel = 'INFO';
-
-        if (!this.config.bucketSize)
-            this.config.bucketSize = ArrowBatchContext.DEFAULT_BUCKET_SIZE;
-
-        if (!this.config.dumpSize)
-            this.config.dumpSize = ArrowBatchContext.DEFAULT_DUMP_SIZE;
 
         const contextDefsPath = path.join(this.config.dataDir, 'context.json');
         if (existsSync(contextDefsPath)) {

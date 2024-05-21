@@ -33,19 +33,24 @@ export const testDataContext: ArrowBatchContextDef = {
         ],
     },
     others: {
-        tx: [
-            { name: 'id', type: 'checksum256' },
-            { name: 'global_index', type: 'u64' },
-            { name: 'block_num', type: 'u64', ref: { table: 'root', field: 'block_num' } },
-            { name: 'action_ordinal', type: 'u32' },
-            { name: 'evm_ordinal', type: 'u32' },
-            { name: 'raw', type: 'bytes' },
-        ],
-        tx_log: [
-            { name: 'tx_index', type: 'u64', ref: { table: 'tx', field: 'global_index' } },
-            { name: 'log_index', type: 'u32' },
-            { name: 'address', type: 'checksum160', optional: true },
-        ],
+        tx: {
+            map: [
+                { name: 'id', type: 'checksum256' },
+                { name: 'global_index', type: 'u64' },
+                { name: 'block_num', type: 'u64', ref: { table: 'root', field: 'block_num' } },
+                { name: 'action_ordinal', type: 'u32' },
+                { name: 'evm_ordinal', type: 'u32' },
+                { name: 'raw', type: 'bytes' },
+            ],
+            streamSize: '128MB'
+        },
+        tx_log: {
+            map: [
+                { name: 'tx_index', type: 'u64', ref: { table: 'tx', field: 'global_index' } },
+                { name: 'log_index', type: 'u32' },
+                { name: 'address', type: 'checksum160', optional: true },
+            ]
+        },
     },
 };
 

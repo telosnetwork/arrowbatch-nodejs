@@ -1,10 +1,10 @@
 import uWS, {TemplatedApp} from "uWebSockets.js";
 import { v4 as uuidv4 } from 'uuid';
 
-import {Logger} from "winston";
-import {RowWithRefs} from "./context.js";
-import {ArrowBatchReader} from "./reader/index.js";
-import {extendedStringify} from "./utils";
+import {format, Logger, loggers, transports} from "winston";
+import {RowWithRefs} from "../context.js";
+import {ArrowBatchReader} from "../reader";
+import {extendedStringify} from "../utils.js";
 
 
 export default class ArrowBatchBroadcaster {
@@ -16,9 +16,23 @@ export default class ArrowBatchBroadcaster {
     private sockets: {[key: string]: uWS.WebSocket<Uint8Array>} = {};
     private listenSocket: uWS.us_listen_socket;
 
-    constructor(reader: ArrowBatchReader, logger: Logger) {
+    constructor(reader: ArrowBatchReader) {
         this.reader = reader;
-        this.logger = logger;
+
+        const logOptions = {
+            exitOnError: false,
+            level: reader.config.broadcastLogLevel,
+            format: format.combine(
+                format.metadata(),
+                format.colorize(),
+                format.timestamp(),
+                format.printf((info: any) => {
+                    return `${info.timestamp} [BROADCAST] [${info.level}] : ${info.message} ${Object.keys(info.metadata).length > 0 ? JSON.stringify(info.metadata) : ''}`;
+                })
+            ),
+            transports: [new transports.Console({level: reader.config.broadcastLogLevel})]
+        }
+        this.logger = loggers.add(`broadcast`, logOptions);
     }
 
     initUWS() {

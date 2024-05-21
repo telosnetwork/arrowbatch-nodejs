@@ -6,12 +6,16 @@ import { parentPort, workerData } from 'node:worker_threads';
 import {RecordBatch, RecordBatchFileWriter, Table, tableFromArrays} from "apache-arrow";
 import {format, LogEntry, Logger, loggers} from "winston";
 
-import {ArrowBatchCompression, ArrowBatchProtocol, ArrowTableMapping, encodeRowValue, getArrayFor} from "../protocol.js";
+import {
+    ArrowBatchCompression,
+    ArrowBatchProtocol,
+    ArrowTableMapping,
+    DEFAULT_STREAM_BUF_MEM,
+    encodeRowValue,
+    getArrayFor
+} from "../protocol.js";
 
 import {compressUint8Array, MemoryWriteStream, WorkerTransport} from "../utils.js";
-
-const DEFAULT_STREAM_BUF_MEM = 128 * 1024 * 1024;
-const streamBuffer = Buffer.alloc(DEFAULT_STREAM_BUF_MEM);
 
 export interface WriterControlRequest {
     tid: number
@@ -29,7 +33,7 @@ export interface WriterControlResponse {
 }
 
 let {
-    tableName, alias, tableMappings, compression, logLevel
+    tableName, alias, tableMappings, compression, logLevel, streamBufMem
 }: {
 
     tableName: string,
@@ -37,7 +41,8 @@ let {
     tableMappings: ArrowTableMapping[],
     compression:  ArrowBatchCompression,
 
-    logLevel: string
+    logLevel: string,
+    streamBufMem: number
 
 } = workerData;
 
@@ -58,6 +63,9 @@ const loggingOptions = {
     ]
 }
 const logger: Logger = loggers.add(`worker-internal-${tableName}`, loggingOptions);
+
+const streamBuffer = Buffer.alloc(streamBufMem | DEFAULT_STREAM_BUF_MEM);
+logger.info(`write stream buffer of ${streamBufMem.toLocaleString()} bytes allocated!`);
 
 const intermediateBuffers = {};
 let intermediateSize = 0;

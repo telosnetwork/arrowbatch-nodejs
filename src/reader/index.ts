@@ -54,7 +54,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     protected _createBuffer(tableName: string) {
         const buffers = {columns: new Map<string, any[]>()};
-        for (const mapping of this.tableMappings.get(tableName))
+        for (const mapping of this.tableMappings.get(tableName).map)
             buffers.columns.set(mapping.name, []);
         return buffers;
     }
@@ -77,7 +77,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             tableName = 'root';
 
         const tableBuffers = this._intermediateBuffers.get(tableName);
-        const mappings = this.tableMappings.get(tableName);
+        const mappings = this.tableMappings.get(tableName).map;
         for (const [i, mapping] of mappings.entries())
             tableBuffers.columns.get(mapping.name).push(decodeRowValue(tableName, mapping, row[i]));
     }
@@ -208,7 +208,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
     ): {[key: string]: any[][]} {
         const tableBuffers = auxiliary ? this._auxiliaryBuffers : this._intermediateBuffers;
 
-        const rootFieldIndex = this.tableMappings.get(referencedTable).findIndex(
+        const rootFieldIndex = this.tableMappings.get(referencedTable).map.findIndex(
             m => m.name === referencedField.name);
 
         if (rootFieldIndex == -1)
@@ -227,7 +227,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             const rows = [];
             refs[tableName] = rows;
 
-            const mappings = this.tableMappings.get(tableName);
+            const mappings = this.tableMappings.get(tableName).map;
 
             const refFieldIndex = mappings.findIndex(
                 m => (
@@ -271,7 +271,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
         ref: any,
         tables: ArrowCachedTables
     ): {[key: string]: any[][]} {
-        const rootFieldIndex = this.tableMappings.get(referencedTable).findIndex(
+        const rootFieldIndex = this.tableMappings.get(referencedTable).map.findIndex(
             m => m.name === referencedField.name);
 
         if (rootFieldIndex == -1)
@@ -290,9 +290,9 @@ export class ArrowBatchReader extends ArrowBatchContext {
             const rows = [];
             refs[tableName] = rows;
 
-            const mappings = this.tableMappings.get(tableName);
+            const mappings = this.tableMappings.get(tableName).map;
 
-            const refFieldIndex = this.tableMappings.get(tableName).findIndex(
+            const refFieldIndex = this.tableMappings.get(tableName).map.findIndex(
                 m => (
                     m.ref &&
                     m.ref.table === referencedTable &&
@@ -407,7 +407,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     protected getBufferRow(tableName: string, index: number, auxiliary: boolean = false) {
         const tableBuffers = auxiliary ? this._auxiliaryBuffers : this._intermediateBuffers;
-        const mappings = this.tableMappings.get(tableName);
+        const mappings = this.tableMappings.get(tableName).map;
         const tableBuff = tableBuffers.get(tableName);
         return mappings.map(
             m => tableBuff.columns.get(m.name)[index]);
@@ -456,7 +456,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             throw new Error(`Could not find row ${tableIndex}!`);
 
         const row = structRow.toArray();
-        this.tableMappings.get('root').forEach((m, i) => {
+        this.tableMappings.get('root').map.forEach((m, i) => {
             row[i] = decodeRowValue('root', m, row[i]);
         });
 

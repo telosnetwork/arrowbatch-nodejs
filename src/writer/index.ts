@@ -9,8 +9,12 @@ import {ArrowBatchConfig} from "../types";
 import {ArrowBatchContextDef, RowWithRefs} from "../context.js";
 import {isWorkerLogMessage, ROOT_DIR, waitEvent, WorkerLogMessage} from "../utils.js";
 import {WriterControlRequest, WriterControlResponse} from "./worker.js";
-import {ArrowTableMapping} from "../protocol.js";
-import ArrowBatchBroadcaster from "../broadcast.js";
+import {ArrowTableMapping, DEFAULT_STREAM_BUF_MEM} from "../protocol.js";
+import ArrowBatchBroadcaster from "./broadcast.js";
+import bytes from "bytes";
+
+export const DEFAULT_BROADCAST_HOST = '127.0.0.1';
+export const DEFAULT_BROADCAST_PORT = 4200;
 
 export class ArrowBatchWriter extends ArrowBatchReader {
 
@@ -36,7 +40,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         super(config, definition, logger);
 
         [...this.tableMappings.entries()].forEach(
-            ([name, mappings]) => {
+            ([name, tableDef]) => {
                 const workerLogOptions = {
                     exitOnError: false,
                     level: this.config.writerLogLevel,
@@ -57,6 +61,10 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 let alias = name;
                 if (name === 'root' && definition.root.name)
                     alias = definition.root.name;
+                
+                let streamBufMem = tableDef.streamSize ?? DEFAULT_STREAM_BUF_MEM;
+                if (streamBufMem && typeof streamBufMem === 'string')
+                    streamBufMem = bytes(streamBufMem);
 
                 const worker = new Worker(
                     path.join(ROOT_DIR, 'build/writer/worker.js'),
@@ -64,9 +72,10 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                         workerData: {
                             tableName: name,
                             alias,
-                            tableMappings: mappings,
+                            tableMappings: tableDef.map,
                             compression: this.config.compression,
-                            logLevel: this.config.writerLogLevel
+                            logLevel: this.config.writerLogLevel,
+                            streamBufMem
                         }
                     }
                 );
@@ -86,7 +95,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 });
             });
 
-        this.broadcaster = new ArrowBatchBroadcaster(this, logger);
+        this.broadcaster = new ArrowBatchBroadcaster(this);
     }
 
     private sendMessageToWriter(name: string, msg: Partial<WriterControlRequest>, ref?: any) {
@@ -246,7 +255,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             tableName = 'root';
 
         const tableBuffers = this._intermediateBuffers.get(tableName);
-        const mappings = this.tableMappings.get(tableName);
+        const mappings = this.tableMappings.get(tableName).map;
         for (const [i, mapping] of mappings.entries())
             tableBuffers.columns.get(mapping.name).push(row[i]);
 
@@ -304,7 +313,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 params: { idx: trimIdx }
             });
 
-            this.tableMappings.get(table).forEach(m =>
+            this.tableMappings.get(table).map.forEach(m =>
                 this._intermediateBuffers.get(table).columns.get(m.name).splice(trimIdx)
             );
         };

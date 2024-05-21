@@ -27,6 +27,11 @@ export interface ArrowBatchFileMetadata {
     batches: {batch: ArrowBatchHeader, start: number, end: number}[]
 }
 
+export const DEFAULT_BUCKET_SIZE = BigInt(1e7);
+export const DEFAULT_DUMP_SIZE = BigInt(1e5);
+
+export const DEFAULT_STREAM_BUF_MEM = 32 * 1024 * 1024;
+
 export class ArrowBatchProtocol {
     /*
      * arrow-batch spec
@@ -431,7 +436,7 @@ const decodeFunctions = {
     bytes: (bytes: string) => {
         return Buffer.from(bytes, 'base64');
     },
-    string: (value: any) => value,
+    string: (value: any) => value.toString(),
 
     checksum160: (bytes: string) => {
         return Buffer.from(bytes, 'base64');
@@ -456,7 +461,7 @@ export function decodeRowValue(tableName: string, fieldInfo: ArrowTableMapping, 
     if (fieldInfo.array) {
         const fieldValues = RLP.decode(Buffer.from(value, 'base64'));
         return fieldValues.map(
-            internalVal => decodeRowValue(tableName, fieldInfo, internalVal));
+            internalVal => decodeRowValue(tableName, {...fieldInfo, array: false}, internalVal));
     }
 
     if (!(fieldType in validationFunctions))

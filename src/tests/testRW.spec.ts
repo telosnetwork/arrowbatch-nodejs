@@ -4,7 +4,7 @@ import os from "node:os";
 
 import {
     ArrowBatchCompression,
-    ArrowBatchConfig,
+    ArrowBatchConfig, ArrowBatchConfigSchema,
     ArrowBatchReader,
     ArrowBatchWriter,
     createLogger, RowWithRefs, waitEvent
@@ -27,14 +27,12 @@ describe('read/write', () => {
         writeRange
     ] = TestChainGenerator.genTestData(startBlock, endBlock);
 
-    const config: ArrowBatchConfig = {
-        wsHost: '127.0.0.1', wsPort: 4200,
+    const config: ArrowBatchConfig = ArrowBatchConfigSchema.parse({
         dataDir: tmpDataDir,
-        compression: ArrowBatchCompression.ZSTD,
-        writerLogLevel: 'info',
+        // writerLogLevel: 'debug',
         bucketSize,
         dumpSize,
-    };
+    });
     let writer: ArrowBatchWriter;
 
     // delete data dir after tests
