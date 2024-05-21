@@ -1,15 +1,15 @@
 {
   "name": "@guilledk/arrowbatch-nodejs",
-  "version": "1.0.0-rc14",
+  "version": "1.0.0-rc15",
   "description": "Arrow Batch Storage protocol",
-  "main": "./build/index.js",
+  "main": "./build/src/index.js",
   "bin": {
     "ab-cli": "./build/tools/ab-cli.js"
   },
   "type": "module",
   "exports": {
     ".": {
-      "import": "./build/index.js"
+      "import": "./build/src/index.js"
     }
   },
   "scripts": {
