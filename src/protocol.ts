@@ -4,7 +4,8 @@ import {tableFromIPC} from "apache-arrow";
 import {ZSTDDecompress} from 'simple-zstd';
 import RLP from "rlp";
 
-import {bigintToUint8Array, numberToUint8Array} from "./utils.js";
+import {bigintToUint8Array} from "./utils.js";
+import {ArrowBatchConfig} from "./types.js";
 
 export enum ArrowBatchCompression {
     UNCOMPRESSED = 0,
@@ -13,7 +14,6 @@ export enum ArrowBatchCompression {
 
 export interface ArrowBatchGlobalHeader {
     versionConstant: string;
-    batchIndexStart: number;
 }
 
 export interface ArrowBatchHeader {
@@ -32,6 +32,10 @@ export interface ArrowBatchFileMetadata {
 
 export const DEFAULT_BUCKET_SIZE = BigInt(1e7);
 export const DEFAULT_DUMP_SIZE = BigInt(1e5);
+
+export const DUMP_CONDITION = (ordinal: bigint, config: ArrowBatchConfig): boolean => {
+    return (ordinal + 1n) % config.dumpSize === 0n;
+}
 
 export const DEFAULT_STREAM_BUF_MEM = 32 * 1024 * 1024;
 
@@ -75,25 +79,14 @@ export class ArrowBatchProtocol {
      * queries that only affect that small batch.
      */
     static readonly ARROW_BATCH_VERSION_CONSTANT = 'ARROW-BATCH1';
-    static readonly GLOBAL_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_VERSION_CONSTANT.length + 4;
+    static readonly GLOBAL_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_VERSION_CONSTANT.length;
 
     static readonly ARROW_BATCH_HEADER_CONSTANT = 'ARROW-BATCH-TABLE';
     static readonly BATCH_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_HEADER_CONSTANT.length + 8 + 1 + 8 + 8;
 
     static newGlobalHeader(batchIndexStart: number = 0): Uint8Array {
-        const strBytes = new TextEncoder().encode(
+        return new TextEncoder().encode(
             ArrowBatchProtocol.ARROW_BATCH_VERSION_CONSTANT);
-
-        const batchIndexBytes = numberToUint8Array(batchIndexStart);
-
-        const buffer = new Uint8Array(
-            strBytes.length + 4
-        );
-
-        buffer.set(strBytes, 0);
-        buffer.set(batchIndexBytes, strBytes.length);
-
-        return buffer;
     }
 
     static newBatchHeader(
@@ -114,11 +107,17 @@ export class ArrowBatchProtocol {
             strBytes.length + batchSizeBytes.length + compressionByte.length + startOrdinalBytes.length + lastOrdinalBytes.length
         );
 
-        buffer.set(strBytes, 0);
-        buffer.set(batchSizeBytes, strBytes.length);
-        buffer.set(compressionByte, strBytes.length + batchSizeBytes.length);
-        buffer.set(startOrdinalBytes, strBytes.length + batchSizeBytes.length + compressionByte.length);
-        buffer.set(lastOrdinalBytes, strBytes.length + batchSizeBytes.length + compressionByte.length + startOrdinalBytes.length);
+        let offset = 0;
+        const appendBuff = (buf) => {
+            buffer.set(buf, offset);
+            offset += buf.length;
+        }
+
+        appendBuff(strBytes);
+        appendBuff(batchSizeBytes);
+        appendBuff(compressionByte);
+        appendBuff(startOrdinalBytes);
+        appendBuff(lastOrdinalBytes);
 
         return buffer;
     }
@@ -128,9 +127,7 @@ export class ArrowBatchProtocol {
         const versionConstantBytes = buffer.subarray(0, versionConstantLength);
         const versionConstant = new TextDecoder("utf-8").decode(versionConstantBytes);
 
-        const batchIndexStart = buffer.readUInt32LE(versionConstantLength);
-
-        return { versionConstant, batchIndexStart };
+        return { versionConstant };
     }
 
     static readBatchHeader(buffer: Buffer): ArrowBatchHeader {

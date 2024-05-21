@@ -1,6 +1,6 @@
 import {Logger} from "winston";
 
-import {ArrowBatchProtocol, ArrowTableMapping, decodeRowValue} from "../protocol.js";
+import {ArrowBatchProtocol, ArrowTableMapping, decodeRowValue, DUMP_CONDITION} from "../protocol.js";
 import {ArrowBatchConfig} from "../types.js";
 import {
     ArrowBatchContext, ArrowBatchContextDef, generateMappingsFromDefs, genereateReferenceMappings,
@@ -88,18 +88,25 @@ export class ArrowBatchReader extends ArrowBatchContext {
         // wip files found, load unfinished table into buffers and init partially
         if (this.wipFilesMap.size > 0) {
             for (const [tableName, tablePath] of this.wipFilesMap.entries()) {
-                const metadata = await ArrowBatchProtocol.readFileMetadata(tablePath);
+                const fileMeta = await ArrowBatchProtocol.readFileMetadata(tablePath);
 
-                if (metadata.batches.length > 1)
+                if (fileMeta.batches.length > 1)
                     throw new Error(`Expected on-disk wip table to have only one batch!`);
 
+                const metadata = fileMeta.batches[0];
+
                 const wipTable = await ArrowBatchProtocol.readArrowBatchTable(
-                    tablePath, metadata, 0);
+                    tablePath, fileMeta, 0);
 
                 // if its root load lastOrdinal from there
                 if (tableName === 'root' && wipTable.numRows > 0) {
                     const lastRow = wipTable.get(wipTable.numRows - 1).toArray();
                     this._lastOrdinal = lastRow[0];
+
+                    // sanity check
+                    if (this._lastOrdinal !== metadata.batch.lastOrdinal)
+                        throw new Error(
+                            `Mismatch between table lastOrdinal (${this._lastOrdinal.toLocaleString()}) and metadata\'s (${metadata.batch.lastOrdinal.toLocaleString()})`)
                 }
 
                 // load all rows using helper
@@ -118,27 +125,20 @@ export class ArrowBatchReader extends ArrowBatchContext {
                 .reverse()[0];
 
             const rootFirstPath = this.tableFileMap.get(lowestBucket).get('root');
-            const firstMetadata = await ArrowBatchProtocol.readFileMetadata(rootFirstPath);
-            const firstTable = await ArrowBatchProtocol.readArrowBatchTable(
-                rootFirstPath, firstMetadata, 0
-            );
-            if (firstTable.numRows > 0) {
-                const firstRow = firstTable.get(0).toArray();
-                this._firstOrdinal = firstRow[0];
-            }
+            const firstMetadata = (await ArrowBatchProtocol.readFileMetadata(rootFirstPath)).batches[0];
+            const firstTableSize = firstMetadata.batch.lastOrdinal - firstMetadata.batch.startOrdinal;
+            if (firstTableSize > 0n)
+                this._firstOrdinal = firstMetadata.batch.startOrdinal;
 
             // only load if lastOrdinal isnt set, (will be set if loaded wip)
             if (typeof this._lastOrdinal === 'undefined') {
                 const rootLastPath = this.tableFileMap.get(highestBucket).get('root');
-                const lastMetadata = await ArrowBatchProtocol.readFileMetadata(rootLastPath);
-                const lastTable = await ArrowBatchProtocol.readArrowBatchTable(
-                    rootLastPath, lastMetadata, lastMetadata.batches.length - 1
-                );
+                const lastFileMetadata = await ArrowBatchProtocol.readFileMetadata(rootLastPath);
+                const lastMetadata = lastFileMetadata.batches[lastFileMetadata.batches.length - 1];
+                const lastTableSize = lastMetadata.batch.lastOrdinal - lastMetadata.batch.startOrdinal;
 
-                if (lastTable.numRows > 0) {
-                    const lastRow = lastTable.get(lastTable.numRows - 1).toArray();
-                    this._lastOrdinal = lastRow[0];
-                }
+                if (lastTableSize > 0)
+                    this._lastOrdinal = lastMetadata.batch.lastOrdinal;
             }
         }
     }
@@ -168,7 +168,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             this._firstOrdinal = this._lastOrdinal;
 
         // maybe start flush
-        if ((ordinal + 1n) % this.config.dumpSize === 0n)
+        if (DUMP_CONDITION(ordinal, this.config))
             this.beginFlush();
     }
 

@@ -9,7 +9,7 @@ import {ArrowBatchConfig} from "../types";
 import {ArrowBatchContextDef, RowWithRefs} from "../context.js";
 import {extendedStringify, isWorkerLogMessage, ROOT_DIR, waitEvent, WorkerLogMessage} from "../utils.js";
 import {WriterControlRequest, WriterControlResponse} from "./worker.js";
-import {ArrowTableMapping, DEFAULT_STREAM_BUF_MEM} from "../protocol.js";
+import {ArrowTableMapping, DEFAULT_STREAM_BUF_MEM, DUMP_CONDITION} from "../protocol.js";
 import ArrowBatchBroadcaster from "./broadcast.js";
 import bytes from "bytes";
 
@@ -114,7 +114,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         workerInfo.tid++;
         workerInfo.worker.postMessage(msg);
 
-        // this.logger.debug(`sent ${extendedStringify(msg)} to worker ${name}`);
+        if (msg.method === 'flush')
+            this.logger.debug(`sent ${extendedStringify(msg)} to worker ${name}`);
     }
 
     private writersMessageHandler(msg: WriterControlResponse | WorkerLogMessage) {
@@ -170,6 +171,9 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         }
 
         workerInfo.tasks.delete(msg.tid);
+
+        if (msg.method === 'flush')
+            this.logger.debug(`worker replied to ${msg.method} with id ${msg.tid}`);
 
         const allWorkersReady = [...this.writeWorkers.values()]
             .every(w => w.ackTid == w.tid - 1);
@@ -235,9 +239,9 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         if (!fs.existsSync(this.wipBucketPath))
             fs.mkdirSync(this.wipBucketPath, {recursive: true});
 
-        const isUnfinished = this.intermediateSize < this.config.dumpSize;
         const startOrdinal = this.intermediateFirstOrdinal;
         const lastOrdinal = this.intermediateLastOrdinal;
+        const unfinished = !DUMP_CONDITION(lastOrdinal, this.config);
 
         // push intermediate to auxiliary and clear it
         this._initIntermediate();
@@ -248,8 +252,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 method: 'flush',
                 params: {
                     writeDir: this.wipBucketPath,
-                    unfinished: isUnfinished,
-                    startOrdinal, lastOrdinal
+                    unfinished, startOrdinal, lastOrdinal
                 }
             })
         });
