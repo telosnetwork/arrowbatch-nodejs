@@ -8,7 +8,7 @@ import {
     RowWithRefs,
     TableBufferInfo
 } from "../context.js";
-import {ArrowBatchCache, ArrowCachedTables, isCachedTables} from "../cache.js";
+import {ArrowBatchCache, ArrowCachedTables, ArrowMetaCacheEntry, isCachedTables} from "../cache.js";
 
 
 export class ArrowBatchReader extends ArrowBatchContext {
@@ -168,7 +168,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             this._firstOrdinal = this._lastOrdinal;
 
         // maybe start flush
-        if (this.intermediateSize === Number(this.config.dumpSize))
+        if ((ordinal + 1n) % this.config.dumpSize === 0n)
             this.beginFlush();
     }
 
@@ -187,6 +187,10 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     get intermediateSize(): number {
         return this.getColumn('root', this.definition.root.ordinal).length;
+    }
+
+    get intermediateFirstOrdinal(): bigint {
+        return this.getColumn('root', this.definition.root.ordinal)[0];
     }
 
     get intermediateLastOrdinal(): bigint {
@@ -412,6 +416,24 @@ export class ArrowBatchReader extends ArrowBatchContext {
         return mappings.map(
             m => tableBuff.columns.get(m.name)[index]);
     }
+
+    getRelativeTableIndex(ordinal: bigint, metadata: ArrowMetaCacheEntry): [number, bigint] {
+        // ensure bucket contains ordinal
+        const bucketOrdStart = metadata.meta.batches[0].batch.startOrdinal;
+        const bucketOrdLast = metadata.meta.batches[
+            metadata.meta.batches.length - 1].batch.lastOrdinal;
+
+        if (ordinal < bucketOrdStart || ordinal > bucketOrdLast)
+            throw new Error(`Bucket does not contain ${ordinal}`);
+
+        let batchIndex = 0;
+        while (ordinal > metadata.meta.batches[batchIndex].batch.lastOrdinal) {
+            batchIndex++;
+        }
+
+        return [batchIndex, ordinal - metadata.meta.batches[batchIndex].batch.startOrdinal];
+    }
+
     async getRow(ordinal: bigint): Promise<RowWithRefs> {
         const ordinalField = this.definition.root.ordinal;
 
@@ -440,7 +462,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
         }
 
         // is row on disk?
-        const tables = await this.cache.getTablesFor(ordinal);
+        const [tables, batchIndex] = await this.cache.getTablesFor(ordinal);
 
         if (!(isCachedTables(tables)))
             throw new Error(`Tables for ordinal ${ordinal} not found`);
@@ -448,12 +470,11 @@ export class ArrowBatchReader extends ArrowBatchContext {
         // fetch requested row from root table
         const adjustedOrdinal = this.getOrdinal(ordinal);
         const [bucketMetadata, _] = await this.cache.getMetadataFor(adjustedOrdinal, 'root');
-        const relativeIndex = ordinal - bucketMetadata.startRow[0];
-        const tableIndex = Number(relativeIndex % BigInt(this.config.dumpSize));
-        const structRow = tables.root.get(tableIndex);
+        const [__, relativeIndex] = this.getRelativeTableIndex(ordinal, bucketMetadata);
+        const structRow = tables.root.get(Number(relativeIndex));
 
         if (!structRow)
-            throw new Error(`Could not find row ${tableIndex}!`);
+            throw new Error(`Could not find row root-${adjustedOrdinal}-${batchIndex}-${relativeIndex}!`);
 
         const row = structRow.toArray();
         this.tableMappings.get('root').map.forEach((m, i) => {

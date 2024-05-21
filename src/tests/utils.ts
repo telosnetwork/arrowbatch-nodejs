@@ -162,8 +162,6 @@ export class TestChainGenerator {
             for (let i = from; i <= to; i++) {
                 const block = blockRows[i];
                 writer.pushRow('block', block);
-
-                writer.updateOrdinal(i);
             }
         };
 

@@ -7,14 +7,14 @@ import {format, Logger, loggers, transports} from "winston";
 import {ArrowBatchReader} from "../reader/index.js";
 import {ArrowBatchConfig} from "../types";
 import {ArrowBatchContextDef, RowWithRefs} from "../context.js";
-import {isWorkerLogMessage, ROOT_DIR, waitEvent, WorkerLogMessage} from "../utils.js";
+import {extendedStringify, isWorkerLogMessage, ROOT_DIR, waitEvent, WorkerLogMessage} from "../utils.js";
 import {WriterControlRequest, WriterControlResponse} from "./worker.js";
 import {ArrowTableMapping, DEFAULT_STREAM_BUF_MEM} from "../protocol.js";
 import ArrowBatchBroadcaster from "./broadcast.js";
 import bytes from "bytes";
 
 export const DEFAULT_BROADCAST_HOST = '127.0.0.1';
-export const DEFAULT_BROADCAST_PORT = 4200;
+export const DEFAULT_BROADCAST_PORT = 4201;
 
 export class ArrowBatchWriter extends ArrowBatchReader {
 
@@ -113,6 +113,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
 
         workerInfo.tid++;
         workerInfo.worker.postMessage(msg);
+
+        // this.logger.debug(`sent ${extendedStringify(msg)} to worker ${name}`);
     }
 
     private writersMessageHandler(msg: WriterControlResponse | WorkerLogMessage) {
@@ -234,6 +236,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             fs.mkdirSync(this.wipBucketPath, {recursive: true});
 
         const isUnfinished = this.intermediateSize < this.config.dumpSize;
+        const startOrdinal = this.intermediateFirstOrdinal;
+        const lastOrdinal = this.intermediateLastOrdinal;
 
         // push intermediate to auxiliary and clear it
         this._initIntermediate();
@@ -244,7 +248,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 method: 'flush',
                 params: {
                     writeDir: this.wipBucketPath,
-                    unfinished: isUnfinished
+                    unfinished: isUnfinished,
+                    startOrdinal, lastOrdinal
                 }
             })
         });
@@ -278,8 +283,10 @@ export class ArrowBatchWriter extends ArrowBatchReader {
 
         this.addRow(tableName, row.row);
 
-        if (tableName === 'root')
+        if (tableName === 'root') {
             this.broadcaster.broadcastRow(row);
+            this.updateOrdinal(row.row[0]);
+        }
     }
 
     private async trimOnBuffers(ordinal: bigint) {
@@ -338,13 +345,11 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         const [bucketMetadata, _] = await this.cache.getMetadataFor(adjustedOrdinal, 'root');
 
         // trim idx relative to bucket start
-        const relativeIndex = ordinal - bucketMetadata.startRow[0];
+        const [batchIndex, relativeIndex] = this.getRelativeTableIndex(ordinal, bucketMetadata);
 
         // table index might need to be loaded into buffers & be partially edited
         // everything after table index can be deleted
-        const tableIndex = Number(relativeIndex % BigInt(this.config.dumpSize));
-
-        if (tableIndex >= bucketMetadata.meta.batches.length)
+        if (batchIndex >= bucketMetadata.meta.batches.length)
             return;
 
         // truncate files from next table onwards
@@ -352,14 +357,14 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             [...this.tableMappings.keys()]
                 .map(table => this.cache.getMetadataFor(adjustedOrdinal, table).then(
                     ([meta, _]) => {
-                        const tableIndexEnd = meta.meta.batches[tableIndex].end;
+                        const tableIndexEnd = meta.meta.batches[batchIndex].end;
                         const fileName = this.tableFileMap.get(adjustedOrdinal).get(table);
                         return pfs.truncate(fileName, tableIndexEnd + 1);
                     })));
 
         // unwrap adjustedOrdinal:tableIndex table into fresh intermediate
         this._intermediateBuffers = this._createBuffers();
-        const tables = await this.cache.getTablesFor(ordinal);
+        const [tables, __] = await this.cache.getTablesFor(ordinal);
 
         Object.entries(
             {root: tables.root, ...tables.others}

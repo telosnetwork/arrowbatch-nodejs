@@ -4,7 +4,7 @@ import {tableFromIPC} from "apache-arrow";
 import {ZSTDDecompress} from 'simple-zstd';
 import RLP from "rlp";
 
-import {bigintToUint8Array} from "./utils.js";
+import {bigintToUint8Array, numberToUint8Array} from "./utils.js";
 
 export enum ArrowBatchCompression {
     UNCOMPRESSED = 0,
@@ -13,12 +13,15 @@ export enum ArrowBatchCompression {
 
 export interface ArrowBatchGlobalHeader {
     versionConstant: string;
+    batchIndexStart: number;
 }
 
 export interface ArrowBatchHeader {
     headerConstant: string;
     batchByteSize: bigint;
     compression: ArrowBatchCompression;
+    startOrdinal: bigint;
+    lastOrdinal: bigint;
 }
 
 export interface ArrowBatchFileMetadata {
@@ -72,27 +75,50 @@ export class ArrowBatchProtocol {
      * queries that only affect that small batch.
      */
     static readonly ARROW_BATCH_VERSION_CONSTANT = 'ARROW-BATCH1';
-    static readonly GLOBAL_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_VERSION_CONSTANT.length;
+    static readonly GLOBAL_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_VERSION_CONSTANT.length + 4;
 
     static readonly ARROW_BATCH_HEADER_CONSTANT = 'ARROW-BATCH-TABLE';
-    static readonly BATCH_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_HEADER_CONSTANT.length + 8 + 1;
+    static readonly BATCH_HEADER_SIZE = ArrowBatchProtocol.ARROW_BATCH_HEADER_CONSTANT.length + 8 + 1 + 8 + 8;
 
-    static newGlobalHeader(): Uint8Array {
-        return new TextEncoder().encode(
+    static newGlobalHeader(batchIndexStart: number = 0): Uint8Array {
+        const strBytes = new TextEncoder().encode(
             ArrowBatchProtocol.ARROW_BATCH_VERSION_CONSTANT);
+
+        const batchIndexBytes = numberToUint8Array(batchIndexStart);
+
+        const buffer = new Uint8Array(
+            strBytes.length + 4
+        );
+
+        buffer.set(strBytes, 0);
+        buffer.set(batchIndexBytes, strBytes.length);
+
+        return buffer;
     }
 
-    static newBatchHeader(byteSize: bigint, compression: ArrowBatchCompression) {
+    static newBatchHeader(
+        byteSize: bigint,
+        compression: ArrowBatchCompression,
+        startOrdinal: bigint,
+        lastOrdinal: bigint
+    ) {
         const strBytes = new TextEncoder().encode(
             ArrowBatchProtocol.ARROW_BATCH_HEADER_CONSTANT);
 
         const batchSizeBytes = bigintToUint8Array(byteSize);
         const compressionByte = new Uint8Array([compression]);
+        const startOrdinalBytes = bigintToUint8Array(startOrdinal);
+        const lastOrdinalBytes = bigintToUint8Array(lastOrdinal);
 
-        const buffer = new Uint8Array(strBytes.length + batchSizeBytes.length + 1);
+        const buffer = new Uint8Array(
+            strBytes.length + batchSizeBytes.length + compressionByte.length + startOrdinalBytes.length + lastOrdinalBytes.length
+        );
+
         buffer.set(strBytes, 0);
         buffer.set(batchSizeBytes, strBytes.length);
         buffer.set(compressionByte, strBytes.length + batchSizeBytes.length);
+        buffer.set(startOrdinalBytes, strBytes.length + batchSizeBytes.length + compressionByte.length);
+        buffer.set(lastOrdinalBytes, strBytes.length + batchSizeBytes.length + compressionByte.length + startOrdinalBytes.length);
 
         return buffer;
     }
@@ -102,7 +128,9 @@ export class ArrowBatchProtocol {
         const versionConstantBytes = buffer.subarray(0, versionConstantLength);
         const versionConstant = new TextDecoder("utf-8").decode(versionConstantBytes);
 
-        return { versionConstant };
+        const batchIndexStart = buffer.readUInt32LE(versionConstantLength);
+
+        return { versionConstant, batchIndexStart };
     }
 
     static readBatchHeader(buffer: Buffer): ArrowBatchHeader {
@@ -113,8 +141,10 @@ export class ArrowBatchProtocol {
         const sizeStart = headerConstantLength;
         const batchByteSize = buffer.readBigUInt64LE(sizeStart);
         const compression = buffer.readUint8(sizeStart + 8);
+        const startOrdinal = buffer.readBigInt64LE(sizeStart + 8 + 1);
+        const lastOrdinal = buffer.readBigInt64LE(sizeStart + 8 + 1 + 8);
 
-        return { headerConstant, batchByteSize, compression };
+        return { headerConstant, batchByteSize, compression, startOrdinal, lastOrdinal };
     }
 
     static async readFileMetadata(filePath: string): Promise<ArrowBatchFileMetadata> {

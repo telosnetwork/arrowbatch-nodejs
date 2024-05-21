@@ -1,6 +1,6 @@
 {
   "name": "@guilledk/arrowbatch-nodejs",
-  "version": "1.0.0-rc11",
+  "version": "1.0.0-rc12",
   "description": "Arrow Batch Storage protocol",
   "main": "./build/index.js",
   "type": "module",
@@ -12,7 +12,8 @@
   "scripts": {
     "bootstrap": "yarn",
     "build": "yarn run bootstrap && tsc",
-    "test-all": "c8 mocha build/tests/test*.spec.js"
+    "test-all": "mocha build/tests/test*.spec.js",
+    "coverage": "c8 mocha build/tests/test*.spec.js"
   },
   "repository": {
     "type": "git",

@@ -64,7 +64,7 @@ const loggingOptions = {
 }
 const logger: Logger = loggers.add(`worker-internal-${tableName}`, loggingOptions);
 
-const streamBuffer = Buffer.alloc(streamBufMem | DEFAULT_STREAM_BUF_MEM);
+const streamBuffer = Buffer.alloc(streamBufMem);
 logger.info(`write stream buffer of ${streamBufMem.toLocaleString()} bytes allocated!`);
 
 const intermediateBuffers = {};
@@ -113,7 +113,9 @@ function flush(msg: WriterControlRequest) {
     /*
      * params:
      *     - unfinished: boolean -> is this a .wip or not?
-     *     - writeDir: string -> bucket dir path
+     *     - writeDir: string -> bucket dir path,
+     *     - startOrdinal: bigint -> root start ordinal of this batch
+     *     - lastOrdinal: bigint -> root last ordinal of this batch
      */
     const fileName = `${alias ?? tableName}.ab${msg.params.unfinished ? '.wip' : ''}`;
     const currentFile = path.join(msg.params.writeDir, fileName);
@@ -144,7 +146,10 @@ function flush(msg: WriterControlRequest) {
             const newSize = fs.fstatSync(fd).size + ArrowBatchProtocol.BATCH_HEADER_SIZE + batchBytes.length;
             try {
                 // Write the batch header
-                fs.appendFileSync(fd, ArrowBatchProtocol.newBatchHeader(BigInt(batchBytes.length), compression));
+                fs.appendFileSync(fd, ArrowBatchProtocol.newBatchHeader(
+                    BigInt(batchBytes.length), compression,
+                    msg.params.startOrdinal, msg.params.lastOrdinal
+                ));
 
                 // Write the batch content
                 fs.appendFileSync(fd, batchBytes);

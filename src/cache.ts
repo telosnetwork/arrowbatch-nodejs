@@ -7,7 +7,7 @@ import moment from "moment";
 
 export interface ArrowMetaCacheEntry {
     ts: number,
-    meta: ArrowBatchFileMetadata, startRow: any[]
+    meta: ArrowBatchFileMetadata
 }
 
 export interface ArrowCachedTables {
@@ -55,12 +55,7 @@ export class ArrowBatchCache {
             this.metadataCache.delete(cacheKey);
         }
 
-        const firstTable = await ArrowBatchProtocol.readArrowBatchTable(
-            filePath, meta, 0);
-
-        const startRow = firstTable.get(0).toArray();
-
-        const result = { ts: moment.now(), meta, startRow };
+        const result = { ts: moment.now(), meta };
         this.metadataCache.set(cacheKey, result);
         return [result, true];
     }
@@ -86,7 +81,7 @@ export class ArrowBatchCache {
         ];
     }
 
-    async getTablesFor(ordinal: bigint) {
+    async getTablesFor(ordinal: bigint): Promise<[ArrowCachedTables, number]> {
         const adjustedOrdinal = this.ctx.getOrdinal(ordinal);
 
         // metadata about the bucket we are going to get tables for, mostly need to
@@ -94,18 +89,25 @@ export class ArrowBatchCache {
         // boundary start
         const [bucketMetadata, metadataUpdated] = await this.getMetadataFor(adjustedOrdinal, 'root');
 
-        // index relative to bucket boundary
-        const relativeIndex = ordinal - bucketMetadata.startRow[0];
+        // ensure bucket contains ordinal
+        const bucketOrdStart = bucketMetadata.meta.batches[0].batch.startOrdinal;
+        const bucketOrdLast = bucketMetadata.meta.batches[
+            bucketMetadata.meta.batches.length - 1].batch.lastOrdinal;
 
-        // get batch table index, assuming config.dumpSize table size is respected
-        const batchIndex = Number(relativeIndex / BigInt(this.ctx.config.dumpSize));
+        if (ordinal < bucketOrdStart || ordinal > bucketOrdLast)
+            throw new Error(`Bucket does not contain ${ordinal}`);
+
+        let batchIndex = 0;
+        while (ordinal > bucketMetadata.meta.batches[batchIndex].batch.lastOrdinal) {
+            batchIndex++;
+        }
 
         const cacheKey = `${adjustedOrdinal}-${batchIndex}`;
 
         if (this.tableCache.has(cacheKey)) {
             // we have this tables cached, but only return if metadata wasnt invalidated
             if (!metadataUpdated)
-                return this.tableCache.get(cacheKey);
+                return [this.tableCache.get(cacheKey), batchIndex];
 
             // delete stale cache
             this.tableCache.delete(cacheKey)
@@ -136,7 +138,7 @@ export class ArrowBatchCache {
             this.tableCache.delete(oldest);
         }
 
-        return tables;
+        return [tables, batchIndex];
     }
 
     get size() : number {

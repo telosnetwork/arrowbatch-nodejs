@@ -8,6 +8,7 @@ import {format, LogEntry, loggers, transports} from "winston";
 import Transport from "winston-transport";
 import {ZSTDCompress} from 'simple-zstd';
 import EventEmitter from "node:events";
+import {number} from "zod";
 
 
 // currentDir == build/ dir
@@ -25,6 +26,15 @@ export function bigintToUint8Array (big: bigint): Uint8Array {
     }
     return byteArray;
 }
+
+export function numberToUint8Array(int: number): Uint8Array {
+    const byteArray = new Uint8Array(4);
+    for (let i = 0; i < byteArray.length; i++) {
+        byteArray[i] = Math.floor(int / Math.pow(256, i)) % 256;
+    }
+    return byteArray;
+}
+
 export async function compressUint8Array(input: Uint8Array, compressionLevel = 3) {
     // Convert Uint8Array to a Buffer since Node.js streams work with Buffers
     const inputBuffer = Buffer.from(input);
