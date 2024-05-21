@@ -8,12 +8,11 @@ import {format, LogEntry, loggers, transports} from "winston";
 import Transport from "winston-transport";
 import {ZSTDCompress} from 'simple-zstd';
 import EventEmitter from "node:events";
-import {number} from "zod";
 
 
 // currentDir == build/ dir
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT_DIR = path.join(currentDir, '..')
+export const ROOT_DIR = path.join(currentDir, '../..')
 export const SRC_DIR = path.join(ROOT_DIR, 'src');
 
 const packageJsonFile = path.join(ROOT_DIR, 'package.json');
@@ -156,11 +155,23 @@ export async function waitEvent(emitter: EventEmitter, event: string): Promise<v
     return new Promise(resolve => emitter.once(event, resolve));
 }
 
-export function extendedStringify(obj: any): string {
+export function extendedStringify(obj: any, indent?: number): string {
     return JSON.stringify(obj, (key, value) => {
         if (typeof value === "bigint") {
             return value.toString();
+        } else if (typeof value === "object" && value.type === "Buffer") {
+            return Buffer.from(value).toString('hex')
         }
         return value;
-    })
+    }, indent)
+}
+
+export function humanizeByteSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }

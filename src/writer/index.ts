@@ -67,7 +67,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     streamBufMem = bytes(streamBufMem);
 
                 const worker = new Worker(
-                    path.join(ROOT_DIR, 'build/writer/worker.js'),
+                    path.join(ROOT_DIR, 'build/src/writer/worker.js'),
                     {
                         workerData: {
                             tableName: name,

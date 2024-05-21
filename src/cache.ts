@@ -60,7 +60,7 @@ export class ArrowBatchCache {
         return [result, true];
     }
 
-    private async directLoadTable(
+    async directLoadTable(
         tableName: string,
         adjustedOrdinal: number,
         batchIndex: number

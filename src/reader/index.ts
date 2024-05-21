@@ -487,6 +487,44 @@ export class ArrowBatchReader extends ArrowBatchContext {
     iter(params: {from: bigint, to: bigint}) : RowScroller {
         return new RowScroller(this, params);
     }
+
+    async validate() {
+        for (const adjustedOrdinal of this.tableFileMap.keys()) {
+            const [bucketMeta, _] = await this.cache.getMetadataFor(adjustedOrdinal, 'root');
+
+            for (const [batchIndex, batchMeta] of bucketMeta.meta.batches.entries()) {
+                this.logger.info(`validating bucket ${adjustedOrdinal} batch ${batchIndex + 1}/${bucketMeta.meta.batches.length}`);
+
+                const metaSize = Number(batchMeta.batch.lastOrdinal - batchMeta.batch.startOrdinal) + 1;
+
+                const [_, table] = await this.cache.directLoadTable('root', adjustedOrdinal, batchIndex);
+                const tableSize = table.numRows;
+                const actualStart = table.get(0).toArray()[0] as bigint;
+                const actualLast = table.get(tableSize - 1).toArray()[0] as bigint;
+
+                if (metaSize !== tableSize) {
+                    this.logger.error(`metaSize (${metaSize}) != tableSize (${tableSize})`);
+
+                    let lastEval = actualStart - 1n;
+                    for (const [i, row] of table.toArray().entries()) {
+                        const ord = row.toArray()[0] as bigint;
+                        if (ord !== lastEval + 1n)
+                            throw new Error(
+                                `table row size metadata mismatch at table index ${i} expected ${lastEval + 1n} and got ${ord}`);
+
+                        lastEval = ord;
+                    }
+                }
+//                    throw new Error(`table row size metadata mismatch!`);
+
+                if (batchMeta.batch.startOrdinal !== actualStart)
+                    throw new Error(`batch metadata startOrd mismatch with actual!`);
+
+                if (batchMeta.batch.lastOrdinal !== actualLast)
+                    throw new Error(`batch metadata lastOrd mismatch with actual!`);
+            }
+        }
+    }
 }
 
 export class RowScroller {
