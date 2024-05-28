@@ -159,7 +159,7 @@ export function extendedStringify(obj: any, indent?: number): string {
     return JSON.stringify(obj, (key, value) => {
         if (typeof value === "bigint") {
             return value.toString();
-        } else if (typeof value === "object" && value.type === "Buffer") {
+        } else if (typeof value === "object" && (value.type === "Buffer" || value instanceof Uint8Array)) {
             return Buffer.from(value).toString('hex')
         }
         return value;

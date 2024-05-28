@@ -489,7 +489,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
     }
 
     async validate() {
-        for (const adjustedOrdinal of this.tableFileMap.keys()) {
+        for (const adjustedOrdinal of [...this.tableFileMap.keys()].sort()) {
             const [bucketMeta, _] = await this.cache.getMetadataFor(adjustedOrdinal, 'root');
 
             for (const [batchIndex, batchMeta] of bucketMeta.meta.batches.entries()) {
