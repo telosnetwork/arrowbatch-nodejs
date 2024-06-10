@@ -26,7 +26,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
     private isFirstUpdate: boolean = true;
     protected cache: ArrowBatchCache;
 
-    private wsClient: ArrowBatchBroadcastClient;
+    wsClient: ArrowBatchBroadcastClient;
 
     constructor(
         config: ArrowBatchConfig,

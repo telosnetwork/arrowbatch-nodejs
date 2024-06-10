@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import ReconnectingWebSocket from "reconnecting-websocket";
 import {Logger} from "winston";
+import {extendedStringify} from "../utils.js";
 
 interface Response {
     id: string;
@@ -59,7 +60,7 @@ export class ArrowBatchBroadcastClient {
     private sendRequest(method: string, params?: any): Promise<any> {
         return new Promise((resolve, reject) => {
             const id = (this.requestId++).toString();
-            const message = JSON.stringify({ id, method, params });
+            const message = extendedStringify({ id, method, params });
 
             this.pendingRequests.set(id, (response: Response) => {
                 if (response.error) {
