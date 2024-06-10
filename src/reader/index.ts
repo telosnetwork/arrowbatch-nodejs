@@ -1,7 +1,7 @@
 import {Logger} from "winston";
 
 import {ArrowBatchProtocol, ArrowTableMapping, decodeRowValue, DUMP_CONDITION} from "../protocol.js";
-import {ArrowBatchConfig} from "../types.js";
+import {ArrowBatchConfig, FlushReq} from "../types.js";
 import {
     ArrowBatchContext, ArrowBatchContextDef, generateMappingsFromDefs, genereateReferenceMappings,
     RowBuffers,
@@ -23,7 +23,6 @@ export class ArrowBatchReader extends ArrowBatchContext {
     // auxiliary will get cleared as flush operations finish
     protected _auxiliaryBuffers: RowBuffers = new Map<string, TableBufferInfo>();
 
-    private isFirstUpdate: boolean = true;
     protected cache: ArrowBatchCache;
 
     wsClient: ArrowBatchBroadcastClient;
@@ -85,6 +84,30 @@ export class ArrowBatchReader extends ArrowBatchContext {
         const mappings = this.tableMappings.get(tableName).map;
         for (const [i, mapping] of mappings.entries())
             tableBuffers.columns.get(mapping.name).push(decodeRowValue(tableName, mapping, row[i]));
+    }
+
+    protected addRow(tableName: string, row: any[], ref?: any) {
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
+        const tableBuffers = this._intermediateBuffers.get(tableName);
+        const mappings = this.tableMappings.get(tableName).map;
+        for (const [i, mapping] of mappings.entries())
+            tableBuffers.columns.get(mapping.name).push(row[i]);
+
+        if (tableName === 'root' && typeof this._lastOrdinal === 'undefined')
+            this._lastOrdinal = row[0];
+    }
+
+    pushRow(tableName: string, row: RowWithRefs) {
+        for (let [tName, rows] of row.refs.entries()) {
+            rows.forEach(r => this.pushRow(tName, r));
+        }
+
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
+        this.addRow(tableName, row.row);
     }
 
     async init(startOrdinal: number | bigint) {
@@ -151,8 +174,20 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
         if (this.config.liveMode) {
             // attempt connection to live feed
-            this.wsClient = new ArrowBatchBroadcastClient(
-                `ws://${this.config.wsHost}:${this.config.wsPort}`, this.logger);
+            this.wsClient = new ArrowBatchBroadcastClient({
+                url: `ws://${this.config.wsHost}:${this.config.wsPort}`,
+                logger: this.logger,
+                handlers: {
+                    pushRow: (row: RowWithRefs) => {
+                        this.pushRow('root', row);
+                    },
+                    flush: (info: FlushReq['params']) => {
+                        this.reloadOnDiskBuckets().then(() => {
+                            this._initIntermediate();
+                        });
+                    }
+                }
+            });
 
             this.wsClient.connect();
 
@@ -167,40 +202,12 @@ export class ArrowBatchReader extends ArrowBatchContext {
             if (this.wsClient.isConnected()) {
                 const liveInfo = await this.wsClient.getInfo();
                 this.logger.debug(`ws get_info: ${JSON.stringify(liveInfo)}`);
-                const liveDelta = BigInt(liveInfo.lastOrdinal) - this._lastOrdinal;
-                this.logger.debug(`missing ${liveDelta} blocks. need to fetch from socket`);
-                // TOOD: start ram buffers sync task
+                const liveDelta = BigInt(liveInfo.result.last_ordinal) - this._lastOrdinal;
+                this.logger.debug(`missing ${liveDelta} rows. need to fetch from socket`);
+
+                await this.wsClient.sync({from: (this._lastOrdinal + 1n).toString()});
             }
         }
-    }
-    beginFlush() {
-        // make sure auxiliary is empty (block concurrent flushes)
-        if (this.auxiliarySize != 0)
-            throw new Error(`beginFlush called but auxiliary buffers not empty, is system overloaded?`)
-
-        // push intermediate to auxiliary and clear it
-        this._initIntermediate();
-    }
-
-    updateOrdinal(ordinal: number | bigint) {
-        // first validate ordering
-        ordinal = BigInt(ordinal);
-
-        if (!this.isFirstUpdate) {
-            const expected = this._lastOrdinal + 1n;
-            if (ordinal != expected)
-                throw new Error(`Expected argument ordinal to be ${expected.toLocaleString()} but was ${ordinal.toLocaleString()}`)
-        } else
-            this.isFirstUpdate = false;
-
-        this._lastOrdinal = ordinal;
-
-        if (!this._firstOrdinal)
-            this._firstOrdinal = this._lastOrdinal;
-
-        // maybe start flush
-        if (DUMP_CONDITION(ordinal, this.config))
-            this.beginFlush();
     }
 
     protected getColumn(tableName: string, columnName: string, auxiliary: boolean = false) {
@@ -582,9 +589,9 @@ export class RowScroller {
     }
 
     async nextResult(): Promise<RowWithRefs> {
-        const nextBlock = this._lastYielded + 1n;
-        const row = await this.reader.getRow(nextBlock);
-        this._lastYielded = nextBlock;
+        const nextRow = this._lastYielded + 1n;
+        const row = await this.reader.getRow(nextRow);
+        this._lastYielded = nextRow;
         this._isDone = this._lastYielded == this.to;
         return row;
     }

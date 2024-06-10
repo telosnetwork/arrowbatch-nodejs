@@ -16,8 +16,11 @@ import bytes from "bytes";
 export const DEFAULT_BROADCAST_HOST = '127.0.0.1';
 export const DEFAULT_BROADCAST_PORT = 4201;
 
+export const DEFAULT_AWK_RANGE = 1000;
+
 export class ArrowBatchWriter extends ArrowBatchReader {
 
+    private isFirstUpdate: boolean = true;
     private _currentWriteBucket: string;
 
     private writeWorkers = new Map<string, {
@@ -168,6 +171,17 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 }
 
                 this.reloadOnDiskBuckets().then(() => this.events.emit('flush'));
+
+                if (this.broadcaster) {
+                    const adjustedOrdinal = this.getOrdinal(msg.extra.startOrdinal);
+                    this.cache.getMetadataFor(adjustedOrdinal, 'root').then(([metadata, _]) => {
+
+                        const batchIndex = BigInt(metadata.meta.batches.length - 1);
+
+                        this.broadcaster.broadcastFlush(
+                            adjustedOrdinal, batchIndex, msg.extra.lastOrdinal);
+                    });
+                }
             }
         }
 
@@ -261,17 +275,29 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         });
     }
 
-    private addRow(tableName: string, row: any[], ref?: any) {
-        if (tableName === this.definition.root.name)
-            tableName = 'root';
+    updateOrdinal(ordinal: number | bigint) {
+        // first validate ordering
+        ordinal = BigInt(ordinal);
 
-        const tableBuffers = this._intermediateBuffers.get(tableName);
-        const mappings = this.tableMappings.get(tableName).map;
-        for (const [i, mapping] of mappings.entries())
-            tableBuffers.columns.get(mapping.name).push(row[i]);
+        if (!this.isFirstUpdate) {
+            const expected = this._lastOrdinal + 1n;
+            if (ordinal != expected)
+                throw new Error(`Expected argument ordinal to be ${expected.toLocaleString()} but was ${ordinal.toLocaleString()}`)
+        } else
+            this.isFirstUpdate = false;
 
-        if (tableName === 'root' && typeof this._lastOrdinal === 'undefined')
-            this._lastOrdinal = row[0];
+        this._lastOrdinal = ordinal;
+
+        if (!this._firstOrdinal)
+            this._firstOrdinal = this._lastOrdinal;
+
+        // maybe start flush
+        if (DUMP_CONDITION(ordinal, this.config))
+            this.beginFlush();
+    }
+
+    protected addRow(tableName: string, row: any[], ref?: any) {
+        super.addRow(tableName, row, ref);
 
         this.sendMessageToWriter(tableName, {
             method: 'addRow',
@@ -280,14 +306,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
     }
 
     pushRow(tableName: string, row: RowWithRefs) {
-        for (let [tName, rows] of row.refs.entries()) {
-            rows.forEach(r => this.pushRow(tName, r));
-        }
-
-        if (tableName === this.definition.root.name)
-            tableName = 'root';
-
-        this.addRow(tableName, row.row);
+        super.pushRow(tableName, row);
 
         if (tableName === 'root') {
             if (this.broadcaster)

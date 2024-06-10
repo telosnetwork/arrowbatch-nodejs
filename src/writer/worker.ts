@@ -169,7 +169,11 @@ function flush(msg: WriterControlRequest) {
                 name: tableName,
                 method: msg.method,
                 status: 'ok',
-                extra: newSize
+                extra: {
+                    newSize,
+                    startOrdinal: msg.params.startOrdinal,
+                    lastOrdinal: msg.params.lastOrdinal
+                }
             });
         };
         switch (compression) {
