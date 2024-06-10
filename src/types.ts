@@ -38,6 +38,7 @@ const BufferSizeSchema = z.union([
 export const ArrowBatchConfigSchema = z.object({
     dataDir: z.string(),
 
+    liveMode: z.boolean().default(false),
     wsHost: z.string().default(DEFAULT_BROADCAST_HOST),
     wsPort: z.number().default(DEFAULT_BROADCAST_PORT),
     writerLogLevel: z.string().default('warning'),

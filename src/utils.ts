@@ -18,6 +18,8 @@ export const SRC_DIR = path.join(ROOT_DIR, 'src');
 const packageJsonFile = path.join(ROOT_DIR, 'package.json');
 export const packageInfo = JSON.parse(fs.readFileSync(packageJsonFile, 'utf-8'));
 
+export const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 export function bigintToUint8Array (big: bigint): Uint8Array {
     const byteArray = new Uint8Array(8);
     for (let i = 0; i < byteArray.length; i++) {

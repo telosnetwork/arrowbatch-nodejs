@@ -10,6 +10,9 @@ import {
 } from "../context.js";
 import {ArrowBatchCache, ArrowCachedTables, ArrowMetaCacheEntry, isCachedTables} from "../cache.js";
 
+import {ArrowBatchBroadcastClient} from "./broadcast.js";
+import {sleep} from "../utils.js";
+
 
 export class ArrowBatchReader extends ArrowBatchContext {
 
@@ -22,6 +25,8 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     private isFirstUpdate: boolean = true;
     protected cache: ArrowBatchCache;
+
+    private wsClient: ArrowBatchBroadcastClient;
 
     constructor(
         config: ArrowBatchConfig,
@@ -139,6 +144,32 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
                 if (lastTableSize > 0)
                     this._lastOrdinal = lastMetadata.batch.lastOrdinal;
+            }
+        }
+
+        this.logger.debug(`on disk info: ${this._firstOrdinal} to ${this._lastOrdinal}`);
+
+        if (this.config.liveMode) {
+            // attempt connection to live feed
+            this.wsClient = new ArrowBatchBroadcastClient(
+                `ws://${this.config.wsHost}:${this.config.wsPort}`, this.logger);
+
+            this.wsClient.connect();
+
+            const maxConnectTimeout = 5000;
+            const startConnectTime = performance.now();
+            while (!this.wsClient.isConnected()) {
+                if (performance.now() - startConnectTime > maxConnectTimeout)
+                    break;
+                await sleep(100);
+            }
+
+            if (this.wsClient.isConnected()) {
+                const liveInfo = await this.wsClient.getInfo();
+                this.logger.debug(`ws get_info: ${JSON.stringify(liveInfo)}`);
+                const liveDelta = BigInt(liveInfo.lastOrdinal) - this._lastOrdinal;
+                this.logger.debug(`missing ${liveDelta} blocks. need to fetch from socket`);
+                // TOOD: start ram buffers sync task
             }
         }
     }

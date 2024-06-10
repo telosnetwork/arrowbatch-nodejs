@@ -95,7 +95,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 });
             });
 
-        this.broadcaster = new ArrowBatchBroadcaster(this);
+        if (this.config.liveMode)
+            this.broadcaster = new ArrowBatchBroadcaster(this);
     }
 
     private sendMessageToWriter(name: string, msg: Partial<WriterControlRequest>, ref?: any) {
@@ -204,7 +205,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
 
         this._currentWriteBucket = this.getOrdinalSuffix(this._lastOrdinal ?? startOrdinal);
 
-        this.broadcaster.initUWS();
+        if (this.broadcaster)
+            this.broadcaster.initUWS();
     }
 
     async deinit() {
@@ -213,7 +215,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 .map(workerInfo => workerInfo.worker.terminate())
         );
 
-        this.broadcaster.close();
+        if (this.broadcaster)
+            this.broadcaster.close();
     }
 
     get wipBucketPath(): string {
@@ -287,7 +290,8 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         this.addRow(tableName, row.row);
 
         if (tableName === 'root') {
-            this.broadcaster.broadcastRow(row);
+            if (this.broadcaster)
+                this.broadcaster.broadcastRow(row);
             this.updateOrdinal(row.row[0]);
         }
     }
