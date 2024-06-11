@@ -155,6 +155,14 @@ export const ResponseSchema = z.object({
     id: z.string()
 });
 
+export const StrictResponseSchema = ResponseSchema.refine(resp => (  // xor error & result fields
+    (resp.result !== undefined || resp.error !== undefined)
+    &&
+    !(resp.result !== undefined && resp.error !== undefined)
+), {
+    message: 'Response must contain either result or error field.'
+});
+
 // generic success
 export const OkResponseSchema = ResponseSchema.extend({
     result: z.literal('ok')

@@ -95,8 +95,6 @@ export default class ArrowBatchBroadcaster {
             throw new Error(`No sync task started...`);
         } else {
             task.akOrdinal += BigInt(params.amount);
-            if (task.akOrdinal > this.reader.lastOrdinal)
-                task.akOrdinal = this.reader.lastOrdinal;
 
             let taskStatus: 'running' | 'started' = 'running'
             if (!task.isSyncUpdateRunning) {
@@ -295,17 +293,17 @@ export default class ArrowBatchBroadcaster {
 
         // sent row from current cursor to client awk'ed ordinal
         let totalSent = 0;
-        while(task.cursor <= task.akOrdinal) {
+        while(sock && task.cursor <= task.akOrdinal && task.cursor < this.reader.lastOrdinal) {
             const row = await this.reader.getRow(task.cursor);
 
             // check for cancelation right after await
-            if (task.isCancelled) {
+            if (task.isCancelled || !sock) {
                 task.isSyncUpdateRunning = false;
                 return;
             }
 
             const syncRowReq = SyncRowReqSchema.parse({
-                method: 'sync-row',
+                method: 'sync_row',
                 params: row,
                 id: `sync-row-${task.cursor}`
             });
@@ -330,7 +328,7 @@ export default class ArrowBatchBroadcaster {
             }
 
             // in case we reached head
-            if (task.cursor == this.reader.lastOrdinal) {
+            if (task.cursor >= this.reader.lastOrdinal - 1n) {
                 task.isSynced = true;
             }
         }

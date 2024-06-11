@@ -37,7 +37,7 @@ export const DEFAULT_DUMP_SIZE = BigInt(1e5);
 export const DEFAULT_BROADCAST_HOST = '127.0.0.1';
 export const DEFAULT_BROADCAST_PORT = 4201;
 
-export const DEFAULT_AWK_RANGE = 1000;
+export const DEFAULT_AWK_RANGE = 2000;
 
 export const DUMP_CONDITION = (ordinal: bigint, config: ArrowBatchConfig): boolean => {
     return (ordinal + 1n) % config.dumpSize === 0n;
@@ -461,7 +461,10 @@ const decodeFunctions = {
     u64: (value: any) => value,
     uintvar: (bytes: string) => {
         const hex = Buffer.from(bytes, 'base64').toString('hex');
-        return BigInt('0x' + hex);
+        if (hex.length > 0)
+            return BigInt('0x' + hex);
+        else
+            return 0n;
     },
 
     i64: (value: any) => value,

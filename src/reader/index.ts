@@ -86,6 +86,17 @@ export class ArrowBatchReader extends ArrowBatchContext {
             tableBuffers.columns.get(mapping.name).push(decodeRowValue(tableName, mapping, row[i]));
     }
 
+    protected _pushRaw(tableName: string, row) {
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
+        for (let [tName, rows] of row.refs.entries()) {
+            rows.forEach(r => this._pushRaw(tName, r));
+        }
+
+        this._pushRawRow(tableName, row.row);
+    }
+
     protected addRow(tableName: string, row: any[], ref?: any) {
         if (tableName === this.definition.root.name)
             tableName = 'root';
@@ -179,7 +190,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
                 logger: this.logger,
                 handlers: {
                     pushRow: (row: RowWithRefs) => {
-                        this.pushRow('root', row);
+                        this._pushRaw('root', row);
                     },
                     flush: (info: FlushReq['params']) => {
                         this.reloadOnDiskBuckets().then(() => {

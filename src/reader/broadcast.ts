@@ -8,7 +8,7 @@ import {
     Request,
     RequestSchema,
     Response,
-    ResponseSchema, SyncAkReq, SyncAkRes, SyncAkResSchema,
+    ResponseSchema, StrictResponseSchema, SyncAkReq, SyncAkRes, SyncAkResSchema,
     SyncReq,
     SyncResSchema,
     SyncRowReq
@@ -58,6 +58,8 @@ export class ArrowBatchBroadcastClient {
             const ordinal = BigInt(request.params.row[0]);
             const expected = this.syncTaskInfo.cursor + 1n;
 
+            this.logger.info(`${request.method} ${ordinal}`);
+
             // simple ordering check
             if (ordinal != expected)
                 throw new Error(`expected ${ordinal.toLocaleString()} to be ${expected.toLocaleString()}`);
@@ -68,7 +70,23 @@ export class ArrowBatchBroadcastClient {
             if (ordinal == this.syncTaskInfo.akOrdinal)
                 setTimeout(async () => this.syncAwk(), 0);
 
-            params.handlers.pushRow(request.params);
+            const repackRow = (row): RowWithRefs => {
+                const refs = new Map<string, RowWithRefs[]>();
+                for (const [refName, refRows] of Object.entries(row.refs)) {
+                    const packedRefRows: RowWithRefs[] = [];
+                    for (const refRow of refRows as any[]) {
+                        packedRefRows.push(repackRow(refRow));
+                    }
+                    if (packedRefRows.length > 0)
+                        refs.set(refName, packedRefRows);
+                }
+                return {
+                    row: row.row,
+                    refs
+                }
+            };
+            const row = repackRow(request.params);
+            params.handlers.pushRow(row);
         };
 
         this.serverMethodHandlers.set('sync_row', genericServerRowHandler);
@@ -91,7 +109,7 @@ export class ArrowBatchBroadcastClient {
             let response: Response;
             let request: Request;
 
-            let maybeResponse = ResponseSchema.safeParse(msgObj);
+            let maybeResponse = StrictResponseSchema.safeParse(msgObj);
             if (maybeResponse.success)
                 response = maybeResponse.data;
 
@@ -188,7 +206,7 @@ export class ArrowBatchBroadcastClient {
         this.logger.debug(`server started sync session, distance: ${syncRes.result.distance}`);
 
         this.syncTaskInfo = {
-            cursor: from,
+            cursor: from - 1n,
             akOrdinal: from - 1n
         }
 
