@@ -116,12 +116,13 @@ export default class ArrowBatchBroadcaster {
     ) {
         let msgStr: string;
         let msgObj: Request;
-        let id: string;
+        let id: string = '?';
         let result: Response['result'];
         let error: Response['error'];
 
         try {
-            msgObj = RequestSchema.parse(Buffer.from(rawMessage).toString('utf-8'));
+            msgStr = Buffer.from(rawMessage).toString('utf-8')
+            msgObj = RequestSchema.parse(JSON.parse(msgStr));
             id = msgObj.id;
 
             const method: string = msgObj.method;
