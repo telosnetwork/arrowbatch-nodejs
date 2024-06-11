@@ -165,18 +165,20 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                     this.wipFilesMap.clear();
                 }
 
-                this.reloadOnDiskBuckets().then(() => this.events.emit('flush'));
+                this.reloadOnDiskBuckets().then(() => {
+                    this.events.emit('flush');
 
-                if (this.broadcaster) {
-                    const adjustedOrdinal = this.getOrdinal(msg.extra.startOrdinal);
-                    this.cache.getMetadataFor(adjustedOrdinal, 'root').then(([metadata, _]) => {
+                    if (this.broadcaster) {
+                        const adjustedOrdinal = this.getOrdinal(msg.extra.startOrdinal);
+                        this.cache.getMetadataFor(adjustedOrdinal, 'root').then(([metadata, _]) => {
 
-                        const batchIndex = BigInt(metadata.meta.batches.length - 1);
+                            const batchIndex = BigInt(metadata.meta.batches.length - 1);
 
-                        this.broadcaster.broadcastFlush(
-                            adjustedOrdinal, batchIndex, msg.extra.lastOrdinal);
-                    });
-                }
+                            this.broadcaster.broadcastFlush(
+                                adjustedOrdinal, batchIndex, msg.extra.lastOrdinal);
+                        });
+                    }
+                });
             }
         }
 
