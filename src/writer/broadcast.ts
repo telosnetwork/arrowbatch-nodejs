@@ -114,16 +114,18 @@ export default class ArrowBatchBroadcaster {
         uuid: string,
         rawMessage: ArrayBuffer
     ) {
-        const msgObj: Request = RequestSchema.parse(Buffer.from(rawMessage).toString('utf-8'));
-
-        const method: string = msgObj.method;
-        const params: any = msgObj.params;
-        const id: string = msgObj.id;
-
+        let msgStr: string;
+        let msgObj: Request;
+        let id: string;
         let result: Response['result'];
         let error: Response['error'];
 
         try {
+            msgObj = RequestSchema.parse(Buffer.from(rawMessage).toString('utf-8'));
+            id = msgObj.id;
+
+            const method: string = msgObj.method;
+            const params: any = msgObj.params;
             switch (method) {
                 case 'sub':
                     result = this.handleSub(uuid, params);
@@ -150,7 +152,7 @@ export default class ArrowBatchBroadcaster {
             }
         } catch (e) {
             this.logger.error('error handling ws client msg:\n');
-            this.logger.error(JSON.stringify(msgObj, null, 4));
+            this.logger.error(msgStr);
             this.logger.error(e.message);
             this.logger.error(e.stack);
             error = {
@@ -181,7 +183,8 @@ export default class ArrowBatchBroadcaster {
                 message: async (ws, msg) => {
                     // @ts-ignore
                     const uuid = ws.uuid;
-                    await this.wsMessageHandler(uuid, msg);
+                    const resp: string = await this.wsMessageHandler(uuid, msg);
+                    ws.send(resp);
                 },
                 drain: () => {
                 },
