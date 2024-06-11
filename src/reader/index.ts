@@ -100,12 +100,12 @@ export class ArrowBatchReader extends ArrowBatchContext {
     }
 
     pushRow(tableName: string, row: RowWithRefs) {
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
         for (let [tName, rows] of row.refs.entries()) {
             rows.forEach(r => this.pushRow(tName, r));
         }
-
-        if (tableName === this.definition.root.name)
-            tableName = 'root';
 
         this.addRow(tableName, row.row);
     }
@@ -199,7 +199,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
                 await sleep(100);
             }
 
-            if (this.wsClient.isConnected()) {
+            if (this.wsClient.isConnected() && this._lastOrdinal) {
                 const liveInfo = await this.wsClient.getInfo();
                 this.logger.debug(`ws get_info: ${JSON.stringify(liveInfo)}`);
                 const liveDelta = BigInt(liveInfo.result.last_ordinal) - this._lastOrdinal;

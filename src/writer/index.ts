@@ -303,6 +303,9 @@ export class ArrowBatchWriter extends ArrowBatchReader {
     pushRow(tableName: string, row: RowWithRefs) {
         super.pushRow(tableName, row);
 
+        if (tableName === this.definition.root.name)
+            tableName = 'root';
+
         if (tableName === 'root') {
             if (this.broadcaster)
                 this.broadcaster.broadcastRow(row);
