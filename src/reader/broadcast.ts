@@ -135,7 +135,7 @@ export class ArrowBatchBroadcastClient {
         return this._isConnected;
     }
 
-    private sendRequest(method: string, params?: any): Promise<any> {
+    private sendRequest(method: string, params: any): Promise<any> {
         return new Promise((resolve, reject) => {
             const id = this.getId()
             const message = extendedStringify({ id, method, params });
@@ -159,7 +159,7 @@ export class ArrowBatchBroadcastClient {
     }
 
     async getInfo(): Promise<GetInfoRes> {
-        const getInfoRes = await this.sendRequest('get_info');
+        const getInfoRes = await this.sendRequest('get_info', {});
         // this.logger.info(JSON.stringify(getInfoRes, null, 4));
         return GetInfoResSchema.parse(getInfoRes);
     }
