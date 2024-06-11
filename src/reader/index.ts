@@ -1,6 +1,6 @@
 import {Logger} from "winston";
 
-import {ArrowBatchProtocol, ArrowTableMapping, decodeRowValue, DUMP_CONDITION} from "../protocol.js";
+import {ArrowBatchProtocol, ArrowTableMapping, decodeRowValue} from "../protocol.js";
 import {ArrowBatchConfig, FlushReq} from "../types.js";
 import {
     ArrowBatchContext, ArrowBatchContextDef, generateMappingsFromDefs, genereateReferenceMappings,

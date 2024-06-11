@@ -1,8 +1,13 @@
 import z, {string} from 'zod';
 import bytes from 'bytes';
 
-import {ArrowBatchCompression, DEFAULT_BUCKET_SIZE, DEFAULT_DUMP_SIZE, DEFAULT_STREAM_BUF_MEM} from "./protocol.js";
-import {DEFAULT_AWK_RANGE, DEFAULT_BROADCAST_HOST, DEFAULT_BROADCAST_PORT} from "./writer/index.js";
+import {
+    ArrowBatchCompression, DEFAULT_AWK_RANGE,
+    DEFAULT_BROADCAST_HOST, DEFAULT_BROADCAST_PORT,
+    DEFAULT_BUCKET_SIZE,
+    DEFAULT_DUMP_SIZE,
+    DEFAULT_STREAM_BUF_MEM
+} from "./protocol.js";
 
 const BigIntSchema = z.union([
     z.string(),

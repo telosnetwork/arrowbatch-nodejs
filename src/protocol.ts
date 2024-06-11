@@ -33,6 +33,12 @@ export interface ArrowBatchFileMetadata {
 export const DEFAULT_BUCKET_SIZE = BigInt(1e7);
 export const DEFAULT_DUMP_SIZE = BigInt(1e5);
 
+
+export const DEFAULT_BROADCAST_HOST = '127.0.0.1';
+export const DEFAULT_BROADCAST_PORT = 4201;
+
+export const DEFAULT_AWK_RANGE = 1000;
+
 export const DUMP_CONDITION = (ordinal: bigint, config: ArrowBatchConfig): boolean => {
     return (ordinal + 1n) % config.dumpSize === 0n;
 }

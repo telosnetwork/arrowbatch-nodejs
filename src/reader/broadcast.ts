@@ -12,10 +12,10 @@ import {
     SyncReq,
     SyncResSchema,
     SyncRowReq
-} from "../types";
+} from "../types.js";
 import {v4 as uuidv4} from 'uuid';
-import {RowWithRefs} from "../context";
-import {DEFAULT_AWK_RANGE} from "../writer";
+import {RowWithRefs} from "../context.js";
+import {DEFAULT_AWK_RANGE} from "../protocol.js";
 
 export interface BroadcastClientParams {
     url: string,
@@ -150,7 +150,7 @@ export class ArrowBatchBroadcastClient {
                     error.stack = response.error.stack;
                     reject(error);
                 } else {
-                    resolve(response.result);
+                    resolve(response);
                 }
             });
 
@@ -159,7 +159,9 @@ export class ArrowBatchBroadcastClient {
     }
 
     async getInfo(): Promise<GetInfoRes> {
-        return GetInfoResSchema.parse(await this.sendRequest('get_info'));
+        const getInfoRes = await this.sendRequest('get_info');
+        // this.logger.info(JSON.stringify(getInfoRes, null, 4));
+        return GetInfoResSchema.parse(getInfoRes);
     }
 
     async getRow(ordinal: bigint): Promise<GetRowRes> {
