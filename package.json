@@ -1,6 +1,6 @@
 {
   "name": "@guilledk/arrowbatch-nodejs",
-  "version": "1.0.0-rc27",
+  "version": "1.0.0-rc28",
   "description": "Arrow Batch Storage protocol",
   "main": "./build/src/index.js",
   "bin": {

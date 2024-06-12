@@ -27,8 +27,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     wsClient: ArrowBatchBroadcastClient;
 
-    onRow: (row: RowWithRefs) => void;
-    onFlush: (info: FlushReq['params']) => void;
+    private syncTaskRunning = false;
 
     constructor(
         config: ArrowBatchConfig,
@@ -38,6 +37,9 @@ export class ArrowBatchReader extends ArrowBatchContext {
         super(config, logger);
 
         if (!this.definition) {
+            if (!definition)
+                throw new Error('Could not figure out data context from disk, and no default provided!');
+
             this.definition = definition;
             this.tableMappings = generateMappingsFromDefs(definition);
             for (const tableName of this.tableMappings.keys())
@@ -185,23 +187,33 @@ export class ArrowBatchReader extends ArrowBatchContext {
         }
 
         this.logger.debug(`on disk info: ${this._firstOrdinal} to ${this._lastOrdinal}`);
+    }
 
-        if (this.config.liveMode) {
+    async beginSync(
+        connectTimeout: number = 5000,
+        callbacks: {
+            onRow?: (row: RowWithRefs) => void,
+            onFlush?: (info: FlushReq['params']) => void
+        } = {}
+    ) {
+        const url = `ws://${this.config.wsHost}:${this.config.wsPort}`;
+        let attempt = 1;
+        if (!this.wsClient || !this.wsClient.isConnected()) {
             // attempt connection to live feed
             this.wsClient = new ArrowBatchBroadcastClient({
-                url: `ws://${this.config.wsHost}:${this.config.wsPort}`,
+                url,
                 logger: this.logger,
                 handlers: {
                     pushRow: (row: RowWithRefs) => {
                         this._pushRaw('root', row);
-                        if (this.onRow)
-                            this.onRow(row);
+                        if (callbacks.onRow)
+                            callbacks.onRow(row);
                     },
                     flush: (info: FlushReq['params']) => {
                         this.reloadOnDiskBuckets().then(() => {
                             this._initIntermediate();
-                            if (this.onFlush)
-                                this.onFlush(info);
+                            if (callbacks.onFlush)
+                                callbacks.onFlush(info);
                         });
                     }
                 }
@@ -209,23 +221,33 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
             this.wsClient.connect();
 
-            const maxConnectTimeout = 5000;
             const startConnectTime = performance.now();
             while (!this.wsClient.isConnected()) {
-                if (performance.now() - startConnectTime > maxConnectTimeout)
+                if (performance.now() - startConnectTime > connectTimeout)
                     break;
+                attempt++;
                 await sleep(100);
             }
-
-            if (this.wsClient.isConnected() && this._lastOrdinal) {
-                const liveInfo = await this.wsClient.getInfo();
-                this.logger.debug(`ws get_info: ${JSON.stringify(liveInfo)}`);
-                const liveDelta = BigInt(liveInfo.result.last_ordinal) - this._lastOrdinal;
-                this.logger.debug(`missing ${liveDelta} rows. need to fetch from socket`);
-
-                await this.wsClient.sync({from: (this._lastOrdinal + 1n).toString()});
-            }
         }
+
+        if (!this.wsClient.isConnected())
+            throw new Error(`Tried to connect to ${url}, after ${attempt} attempts`)
+
+        const liveInfo = await this.wsClient.getInfo();
+        const serverLastOrdinal = BigInt(liveInfo.result.last_ordinal);
+        this.logger.debug(`server last ordinal: ${serverLastOrdinal.toLocaleString()}`);
+
+        let from: bigint;
+        // if _lastOrdinal is defined means we know about some on disk buckets,
+        // sync from last known block forward
+        if (this._lastOrdinal) {
+            const liveDelta = serverLastOrdinal - this._lastOrdinal;
+            this.logger.debug(`missing ${liveDelta} rows. need to fetch from socket`);
+            from = this._lastOrdinal + 1n;
+        } else
+            from = serverLastOrdinal;
+
+        await this.wsClient.sync({from: from.toString()});
     }
 
     protected getColumn(tableName: string, columnName: string, auxiliary: boolean = false) {

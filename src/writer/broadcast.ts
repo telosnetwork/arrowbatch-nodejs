@@ -330,7 +330,7 @@ export default class ArrowBatchBroadcaster {
             }
 
             // in case we reached head
-            if (task.cursor >= this.reader.lastOrdinal - 1n) {
+            if (task.cursor == this.reader.lastOrdinal) {
                 task.isSynced = true;
             }
         }

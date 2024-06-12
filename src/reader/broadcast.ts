@@ -58,7 +58,8 @@ export class ArrowBatchBroadcastClient {
             const ordinal = BigInt(request.params.row[0]);
             const expected = this.syncTaskInfo.cursor + 1n;
 
-            this.logger.info(`${request.method} ${ordinal}`);
+            if (ordinal % 1000n == 0n)
+                this.logger.debug(`server sent row ${ordinal}`);
 
             // simple ordering check
             if (ordinal != expected)
