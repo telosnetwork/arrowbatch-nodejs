@@ -27,6 +27,9 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
     wsClient: ArrowBatchBroadcastClient;
 
+    onRow: (row: RowWithRefs) => void;
+    onFlush: (info: FlushReq['params']) => void;
+
     constructor(
         config: ArrowBatchConfig,
         definition: ArrowBatchContextDef,
@@ -191,10 +194,14 @@ export class ArrowBatchReader extends ArrowBatchContext {
                 handlers: {
                     pushRow: (row: RowWithRefs) => {
                         this._pushRaw('root', row);
+                        if (this.onRow)
+                            this.onRow(row);
                     },
                     flush: (info: FlushReq['params']) => {
                         this.reloadOnDiskBuckets().then(() => {
                             this._initIntermediate();
+                            if (this.onFlush)
+                                this.onFlush(info);
                         });
                     }
                 }

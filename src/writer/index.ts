@@ -195,7 +195,10 @@ export class ArrowBatchWriter extends ArrowBatchReader {
     }
 
     async init(startOrdinal: number | bigint) {
+        const tmpLiveModeSetting = this.config.liveMode;
+        this.config.liveMode = false;
         await super.init(startOrdinal);
+        this.config.liveMode = tmpLiveModeSetting;
 
         // push any rows loaded from wip into writers
         for (const [tableName, tableBuffer] of this._intermediateBuffers.entries()) {

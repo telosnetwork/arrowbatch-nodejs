@@ -217,7 +217,6 @@ export default class ArrowBatchBroadcaster {
     }
 
     broadcastRow(row: RowWithRefs) {
-
         const ordinal = row.row[0];
 
         const req: LiveRowReq = LiveRowReqSchema.parse({
@@ -236,6 +235,9 @@ export default class ArrowBatchBroadcaster {
                 } else {  // client has not awk'ed this ordinal yet, mark as unsync
                     task.isSynced = false;
                 }
+            } else {
+                if (!task.isSyncUpdateRunning && task.cursor < task.akOrdinal)
+                    setTimeout(async () => await this.updateSyncTask(uuid), 0);
             }
         }
     }
