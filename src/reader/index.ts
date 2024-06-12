@@ -76,7 +76,6 @@ export class ArrowBatchReader extends ArrowBatchContext {
     }
 
     protected _initIntermediate() {
-        this._auxiliaryBuffers = this._intermediateBuffers;
         this._intermediateBuffers = this._createBuffers();
         this.logger.debug(`initialized buffers for ${[...this._intermediateBuffers.keys()]}`);
     }

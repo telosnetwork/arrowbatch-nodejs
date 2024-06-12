@@ -238,6 +238,11 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         return path.join(this.wipBucketPath, `${worker.alias}.ab${isUnfinished ? '.wip' : ''}`);
     }
 
+    protected _initIntermediate() {
+        this._auxiliaryBuffers = this._intermediateBuffers;
+        super._initIntermediate();
+    }
+
     beginFlush() {
         // make sure auxiliary is empty (block concurrent flushes)
         if (this.auxiliarySize != 0)
