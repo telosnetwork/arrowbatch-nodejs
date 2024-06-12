@@ -4,11 +4,10 @@ import {Logger} from "winston";
 import {extendedStringify} from "../utils.js";
 import {
     FlushReq, GetInfoRes, GetInfoResSchema, GetRowRes, GetRowResSchema,
-    LiveRowReq,
     Request,
     RequestSchema,
     Response,
-    ResponseSchema, StrictResponseSchema, SyncAkReq, SyncAkRes, SyncAkResSchema,
+    StrictResponseSchema, SyncAkRes, SyncAkResSchema,
     SyncReq,
     SyncResSchema,
     SyncRowReq
@@ -54,7 +53,7 @@ export class ArrowBatchBroadcastClient {
 
         this.serverMethodHandlers = new Map<string, (request: Request) => void>();
 
-        const genericServerRowHandler = (request: SyncRowReq | LiveRowReq) => {
+        const genericServerRowHandler = (request: SyncRowReq) => {
             const ordinal = BigInt(request.params.row[0]);
             const expected = this.syncTaskInfo.cursor + 1n;
 
@@ -91,7 +90,6 @@ export class ArrowBatchBroadcastClient {
         };
 
         this.serverMethodHandlers.set('sync_row', genericServerRowHandler);
-        this.serverMethodHandlers.set('live_row', genericServerRowHandler);
         this.serverMethodHandlers.set('flush', (request: Request) => {
             params.handlers.flush(request.params);
         });

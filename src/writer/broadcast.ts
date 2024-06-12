@@ -20,7 +20,7 @@ import {
     SubReq,
     SubRes,
     FlushReq,
-    FlushReqSchema, LiveRowReqSchema, LiveRowReq, SyncRowReqSchema
+    FlushReqSchema, SyncRowReqSchema
 
 } from '../types.js';
 
@@ -36,7 +36,6 @@ export default class ArrowBatchBroadcaster {
 
     private syncTasksInfo = new Map<string, {
         isCancelled: boolean,
-        isSynced: boolean,
         isSyncUpdateRunning: boolean,
         initParams: {from: bigint, to?: bigint},
         cursor: bigint,
@@ -217,28 +216,9 @@ export default class ArrowBatchBroadcaster {
     }
 
     broadcastRow(row: RowWithRefs) {
-        const ordinal = row.row[0];
-
-        const req: LiveRowReq = LiveRowReqSchema.parse({
-            method: 'live_row',
-            params: row,
-            id: `live-row-${ordinal.toString()}`
-        });
-
-        const serializedReq: string = extendedStringify(req);
-
         for (const [uuid, task] of this.syncTasksInfo.entries()) {
-            if (task.isSynced) {
-                if (ordinal <= task.akOrdinal) {
-                    const ws = this.sockets[uuid];
-                    ws.send(serializedReq);
-                } else {  // client has not awk'ed this ordinal yet, mark as unsync
-                    task.isSynced = false;
-                }
-            } else {
-                if (!task.isSyncUpdateRunning && task.cursor < task.akOrdinal)
-                    setTimeout(async () => await this.updateSyncTask(uuid), 0);
-            }
+            if (!task.isSyncUpdateRunning && task.cursor < task.akOrdinal)
+                setTimeout(async () => await this.updateSyncTask(uuid), 0);
         }
     }
 
@@ -267,7 +247,6 @@ export default class ArrowBatchBroadcaster {
             }, 0);
         } else {  // client has no task, create
             this.syncTasksInfo.set(uuid, {
-                isSynced: false,
                 isSyncUpdateRunning: false,
                 isCancelled: false,
                 initParams: params,
@@ -279,10 +258,6 @@ export default class ArrowBatchBroadcaster {
 
     private async updateSyncTask(uuid: string) {
         const task = this.syncTasksInfo.get(uuid);
-
-        // if client reached head dont use this mechanism to send blocks
-        if (task.isSynced)
-            return;
 
         // ensure no two sync tasks can run at same time
         if (task.isSyncUpdateRunning)
@@ -327,11 +302,6 @@ export default class ArrowBatchBroadcaster {
             if (task.initParams.to && task.cursor == task.initParams.to) {
                 this.syncTasksInfo.delete(uuid);
                 this.logger.debug(`sync task for ${uuid} done.`);
-            }
-
-            // in case we reached head
-            if (task.cursor == this.reader.lastOrdinal) {
-                task.isSynced = true;
             }
         }
     }

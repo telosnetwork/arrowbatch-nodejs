@@ -122,18 +122,6 @@ export const SyncRowReqSchema = RequestSchema.extend({
     ])
 });
 
-// apply live row request: sent when client has a sync task with task.cursor = lastOrdinal - 1 and task.akOrdinal >= lastOrdinal
-export const LiveRowReqSchema = RequestSchema.extend({
-    method: z.literal('live_row'),
-    params: z.union([
-        z.object({
-            row: z.array(z.any()),
-            refs: z.record(z.array(z.any()))
-        }),
-        z.any() // assuming RowWithRefs is defined somewhere else
-    ])
-});
-
 // broadcasted on `flush` topic, indicates writer just did a disk flush
 export const FlushReqSchema = RequestSchema.extend({
     method: z.literal('flush'),
@@ -203,7 +191,6 @@ export type GetRowReq = z.infer<typeof GetRowReqSchema>;
 export type SyncReq = z.infer<typeof SyncReqSchema>;
 export type SyncAkReq = z.infer<typeof SyncAkReqSchema>;
 export type SyncRowReq = z.infer<typeof SyncRowReqSchema>;
-export type LiveRowReq = z.infer<typeof LiveRowReqSchema>;
 export type FlushReq = z.infer<typeof FlushReqSchema>;
 
 export type Response = z.infer<typeof ResponseSchema>;

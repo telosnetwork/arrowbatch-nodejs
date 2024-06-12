@@ -93,8 +93,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
                 });
             });
 
-        if (this.config.liveMode)
-            this.broadcaster = new ArrowBatchBroadcaster(this);
+        this.broadcaster = new ArrowBatchBroadcaster(this);
     }
 
     private sendMessageToWriter(name: string, msg: Partial<WriterControlRequest>, ref?: any) {
@@ -195,10 +194,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
     }
 
     async init(startOrdinal: number | bigint) {
-        const tmpLiveModeSetting = this.config.liveMode;
-        this.config.liveMode = false;
         await super.init(startOrdinal);
-        this.config.liveMode = tmpLiveModeSetting;
 
         // push any rows loaded from wip into writers
         for (const [tableName, tableBuffer] of this._intermediateBuffers.entries()) {
