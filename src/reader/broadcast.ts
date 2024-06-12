@@ -7,7 +7,7 @@ import {
     Request,
     RequestSchema,
     Response,
-    StrictResponseSchema, SyncAkRes, SyncAkResSchema,
+    StrictResponseSchema, SubReqSchema, SubResSchema, SyncAkRes, SyncAkResSchema,
     SyncReq,
     SyncResSchema,
     SyncRowReq
@@ -207,7 +207,12 @@ export class ArrowBatchBroadcastClient {
         this.syncTaskInfo = {
             cursor: from - 1n,
             akOrdinal: from - 1n
-        }
+        };
+
+        this.logger.debug(`subscribing to flush topic...`);
+        const subRes = SubResSchema.parse(
+            await this.sendRequest('sub', {topic: 'flush'}));
+        this.logger.debug(`subbed.`)
 
         await this.syncAwk();
     }

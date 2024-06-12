@@ -1,7 +1,7 @@
 import {
     ArrowBatchConfig, ArrowBatchConfigSchema,
     ArrowBatchReader,
-    createLogger, sleep
+    createLogger, FlushReq, sleep
 } from '../index.js';
 
 describe('liveMode', () => {
@@ -16,9 +16,15 @@ describe('liveMode', () => {
 
     it('connect and get info', async () => {
         const reader = new ArrowBatchReader(config, undefined, logger);
-        await reader.init(0);
+        function onFlushHandler (flushInfo: FlushReq['params']) {
+            logger.info(`writer flushed: ${JSON.stringify(flushInfo)}`);
+        }
 
-        while(true)
-            await sleep(1000);
+        await reader.init(0);
+        await reader.beginSync(
+            5000, {onFlush: onFlushHandler}
+        )
+
+        await sleep(2 * 60 * 1000);
     });
 });
