@@ -6,7 +6,7 @@ import {
 
 describe('liveMode', () => {
 
-    const logger = createLogger('testLive', 'debug');
+    const logger = createLogger('testLive', 'info');
 
     const config: ArrowBatchConfig = ArrowBatchConfigSchema.parse({
         dataDir: '../telosevm-translator/arrow-data',
@@ -20,7 +20,7 @@ describe('liveMode', () => {
             logger.info(`writer flushed: ${JSON.stringify(flushInfo)}`);
         }
 
-        await reader.init(0);
+        await reader.init();
         await reader.beginSync(
             5000, {onFlush: onFlushHandler}
         )

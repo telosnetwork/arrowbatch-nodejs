@@ -7,20 +7,19 @@ import {
     Request,
     RequestSchema,
     Response,
-    StrictResponseSchema, SubReqSchema, SubResSchema, SyncAkRes, SyncAkResSchema,
+    StrictResponseSchema, SubResSchema, SyncAkRes, SyncAkResSchema,
     SyncReq,
     SyncResSchema,
     SyncRowReq
 } from "../types.js";
 import {v4 as uuidv4} from 'uuid';
-import {RowWithRefs} from "../context.js";
 import {DEFAULT_AWK_RANGE} from "../protocol.js";
 
 export interface BroadcastClientParams {
     url: string,
     logger: Logger,
     handlers: {
-        pushRow: (row: RowWithRefs) => void,
+        pushRow: (row: any[]) => void,
         flush: (info: FlushReq['params']) => void
     },
     syncAwkRange?: number
@@ -70,23 +69,7 @@ export class ArrowBatchBroadcastClient {
             if (ordinal == this.syncTaskInfo.akOrdinal)
                 setTimeout(async () => this.syncAwk(), 0);
 
-            const repackRow = (row): RowWithRefs => {
-                const refs = new Map<string, RowWithRefs[]>();
-                for (const [refName, refRows] of Object.entries(row.refs)) {
-                    const packedRefRows: RowWithRefs[] = [];
-                    for (const refRow of refRows as any[]) {
-                        packedRefRows.push(repackRow(refRow));
-                    }
-                    if (packedRefRows.length > 0)
-                        refs.set(refName, packedRefRows);
-                }
-                return {
-                    row: row.row,
-                    refs
-                }
-            };
-            const row = repackRow(request.params);
-            params.handlers.pushRow(row);
+            params.handlers.pushRow(request.params);
         };
 
         this.serverMethodHandlers.set('sync_row', genericServerRowHandler);

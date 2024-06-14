@@ -16,6 +16,9 @@
     "bootstrap": "yarn",
     "build": "yarn run bootstrap && tsc && node build/tools/postInstall.js",
     "test-all": "mocha build/src/tests/test*.spec.js",
+    "test-cache": "mocha build/src/tests/testCache.spec.js --timeout=120000",
+    "test-rw": "mocha build/src/tests/testRW.spec.js --timeout=120000",
+    "test-serial": "mocha build/src/tests/testSerialization.spec.js --timeout=120000",
     "coverage": "c8 mocha build/src/tests/test*.spec.js"
   },
   "repository": {
@@ -34,6 +37,7 @@
     "reconnecting-websocket": "^4.4.0",
     "rlp": "^3.0.0",
     "simple-zstd": "^1.4.2",
+    "typescript-lru-cache": "^2.0.0",
     "uWebSockets.js": "uNetworking/uWebSockets.js#v20.38.0",
     "uuid": "^9.0.1",
     "winston": "^3.13.0",

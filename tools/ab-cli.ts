@@ -44,7 +44,7 @@ async function readerFromCLIOpts(options: {
 
     const logger = createLogger('ab-cli', 'info');
     const reader = new ArrowBatchReader(config, undefined, logger);
-    await reader.init(0n);
+    await reader.init();
 
     return reader;
 }

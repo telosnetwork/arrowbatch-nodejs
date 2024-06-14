@@ -2,7 +2,6 @@ import uWS, {TemplatedApp} from "uWebSockets.js";
 import { v4 as uuidv4 } from 'uuid';
 
 import {format, Logger, loggers, transports} from "winston";
-import {RowWithRefs} from "../context.js";
 import {ArrowBatchReader} from "../reader";
 import {extendedStringify, sleep} from "../utils.js";
 
@@ -215,7 +214,7 @@ export default class ArrowBatchBroadcaster {
         this.broadcastServer.publish('flush', extendedStringify(flushReq));
     }
 
-    broadcastRow(row: RowWithRefs) {
+    broadcastRow(row: any[]) {
         for (const [uuid, task] of this.syncTasksInfo.entries()) {
             if (!task.isSyncUpdateRunning && task.cursor < task.akOrdinal)
                 setTimeout(async () => await this.updateSyncTask(uuid), 0);

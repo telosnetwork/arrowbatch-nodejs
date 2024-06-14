@@ -4,7 +4,7 @@ import {tableFromIPC} from "apache-arrow";
 import {ZSTDDecompress} from 'simple-zstd';
 import RLP from "rlp";
 
-import {bigintToUint8Array} from "./utils.js";
+import {bigintToUint8Array, extendedStringify} from "./utils.js";
 import {ArrowBatchConfig} from "./types.js";
 
 export enum ArrowBatchCompression {
@@ -33,6 +33,7 @@ export interface ArrowBatchFileMetadata {
 export const DEFAULT_BUCKET_SIZE = BigInt(1e7);
 export const DEFAULT_DUMP_SIZE = BigInt(1e5);
 
+export const DEFAULT_ALIAS = 'table';
 
 export const DEFAULT_BROADCAST_HOST = '127.0.0.1';
 export const DEFAULT_BROADCAST_PORT = 4201;
@@ -217,9 +218,12 @@ export type ArrowIntType = 'i64';
 export type ArrowNumberType = ArrowUnsignedIntType | ArrowIntType;
 export type ArrowByteFieldType = 'string' | 'bytes' | 'base64';
 export type ArrowDigestType = 'checksum160' | 'checksum256';
+export type ArrowStructType = 'struct';
+export type ArrowTypes = ArrowNumberType | ArrowByteFieldType | ArrowDigestType | ArrowStructType;
+
 export interface ArrowTableMapping {
     name: string;
-    type: ArrowNumberType | ArrowByteFieldType | ArrowDigestType;
+    type: ArrowTypes;
 
     optional?: boolean;
     length?: number;
@@ -228,15 +232,17 @@ export interface ArrowTableMapping {
 }
 
 const nullForType = {
-    u8: 0, u16: 0, u32: 0, u64: BigInt(0), uintvar: BigInt(0),
-    i64: BigInt(0),
+    u8: 0, u16: 0, u32: 0, u64: 0n, uintvar: 0n,
+    i64: 0n,
 
     string: '',
     bytes: '',
     base64: '',
 
     checksum160: '00'.repeat(20),
-    checksum256: '00'.repeat(32)
+    checksum256: '00'.repeat(32),
+
+    struct: null,
 }
 
 const arraysPerType = {
@@ -310,7 +316,28 @@ const validationFunctions = {
         return typeof value === 'string' ||
             value instanceof Uint8Array ||
             value instanceof Buffer;
+    },
+    struct: (value: any) => typeof value === 'object'
+}
+
+export function bufferFromString(byte: any): Buffer {
+    let typedValue: Buffer;
+    if (typeof byte === 'string') {
+        const hexRegex = /^0x[0-9a-fA-F]+$|^[0-9a-fA-F]+$/;
+        if (hexRegex.test(byte)) {
+            if (byte.startsWith('0x'))
+                byte = byte.substring(2);
+            typedValue = Buffer.from(byte, 'hex');
+        } else {
+            typedValue = Buffer.from(byte, 'base64');
+        }
+    } else if (byte instanceof Uint8Array) {
+        typedValue = Buffer.from(byte);
+    } else if (Array.isArray(byte)) {
+        typedValue = Buffer.from(byte);
     }
+
+    return typedValue;
 }
 
 const encodeFunctions = {
@@ -361,20 +388,9 @@ const encodeFunctions = {
     i64: (value: any, fieldInfo: ArrowTableMapping) => BigInt(value),
 
     bytes: (value: any, fieldInfo: ArrowTableMapping) => {
-        let typedValue: Buffer;
-        let valByteLength = value.length;
-        if (typeof value === 'string') {
-            if (value.startsWith('0x'))
-                value = value.substring(2);
-            typedValue = Buffer.from(value, 'hex');
-            valByteLength /= 2;
-        } else if (value instanceof Uint8Array) {
-            typedValue = Buffer.from(value);
-        } else if (Array.isArray(value)) {
-            typedValue = Buffer.from(value);
-        }
+        const typedValue: Buffer = bufferFromString(value);
 
-        if (fieldInfo.length && valByteLength != fieldInfo.length)
+        if (fieldInfo.length && typedValue.length != fieldInfo.length)
             throw new Error(
                 `Invalid row byte field length for ${fieldInfo.name}, value length ${value.length} but expected ${fieldInfo.length}`);
 
@@ -383,14 +399,7 @@ const encodeFunctions = {
     string: (value: any, fieldInfo: ArrowTableMapping) => value,
 
     checksum160: (value: any, fieldInfo: ArrowTableMapping) => {
-        let typedValue: Buffer;
-        if (typeof value === 'string') {
-            if (value.startsWith('0x'))
-                value = value.substring(2);
-            typedValue = Buffer.from(value.padStart('0', 40), 'hex');
-
-        } else if (value instanceof Uint8Array)
-            typedValue = Buffer.from(value);
+        const typedValue: Buffer = bufferFromString(value);
 
         if (typedValue.length > 20)
             throw new Error(
@@ -399,24 +408,20 @@ const encodeFunctions = {
         return typedValue.toString('base64');
     },
     checksum256: (value: any, fieldInfo: ArrowTableMapping) => {
-        let typedValue: Buffer;
-        if (typeof value === 'string') {
-            if (value.startsWith('0x'))
-                value = value.substring(2);
-            typedValue = Buffer.from(value.padStart('0', 64), 'hex');
-
-        } else if (value instanceof Uint8Array)
-            typedValue = Buffer.from(value);
+        const typedValue: Buffer = bufferFromString(value);
 
         if (typedValue.length > 32)
             throw new Error(
                 `Invalid row byte field length for ${fieldInfo.name}, value length ${typedValue.length} but expected 32`);
 
         return typedValue.toString('base64');
+    },
+    struct: (value: any, fieldInfo: ArrowTableMapping) => {
+        return extendedStringify(value);
     }
 };
 
-export function encodeRowValue(tableName: string, fieldInfo: ArrowTableMapping, value: any) {
+export function encodeRowValue(fieldInfo: ArrowTableMapping, value: any) {
     const fieldType = fieldInfo.type;
 
     // handle optionals
@@ -448,7 +453,7 @@ export function encodeRowValue(tableName: string, fieldInfo: ArrowTableMapping, 
 
     if (!validationFn(value))
         throw new Error(
-            `Invalid row field value at ${tableName}.${fieldInfo.name}, can\'t cast value ${value} to ${fieldInfo.type}`);
+            `Invalid row field value ${fieldInfo.name}, can\'t cast value ${value} to ${fieldInfo.type}`);
 
     const encodeFn = encodeFunctions[fieldType];
     return encodeFn(value, fieldInfo);
@@ -475,14 +480,15 @@ const decodeFunctions = {
     string: (value: any) => value.toString(),
 
     checksum160: (bytes: string) => {
-        return Buffer.from(bytes, 'base64');
+        return Buffer.from(bytes, 'base64').toString('hex');
     },
     checksum256: (bytes: string) => {
-        return Buffer.from(bytes, 'base64');
-    }
+        return Buffer.from(bytes, 'base64').toString('hex');
+    },
+    struct: (strObj: string) => JSON.parse(strObj)
 };
 
-export function decodeRowValue(tableName: string, fieldInfo: ArrowTableMapping, value: any) {
+export function decodeRowValue(fieldInfo: ArrowTableMapping, value: any) {
     const fieldType = fieldInfo.type;
 
     // handle optionals
@@ -497,7 +503,7 @@ export function decodeRowValue(tableName: string, fieldInfo: ArrowTableMapping, 
     if (fieldInfo.array) {
         const fieldValues = RLP.decode(Buffer.from(value, 'base64'));
         return fieldValues.map(
-            internalVal => decodeRowValue(tableName, {...fieldInfo, array: false}, internalVal));
+            internalVal => decodeRowValue({...fieldInfo, array: false}, internalVal));
     }
 
     if (!(fieldType in validationFunctions))
@@ -512,7 +518,7 @@ export function decodeRowValue(tableName: string, fieldInfo: ArrowTableMapping, 
 
     if (!validationFn(decodedValue))
         throw new Error(
-            `Invalid row field value at ${tableName}.${fieldInfo.name}, can\'t cast value ${value} to ${fieldInfo.type}`);
+            `Invalid row field value ${fieldInfo.name}, can\'t cast value ${value} to ${fieldInfo.type}`);
 
     return decodedValue;
 }

@@ -25,7 +25,6 @@ export interface WriterControlRequest {
 
 export interface WriterControlResponse {
     tid: number,
-    name: string,
     method: string,
     status: 'ok' | 'error',
     extra?: any,
@@ -33,12 +32,11 @@ export interface WriterControlResponse {
 }
 
 let {
-    tableName, alias, tableMappings, compression, logLevel, streamBufMem
+    alias, tableMapping, compression, logLevel, streamBufMem
 }: {
 
-    tableName: string,
-    alias?: string,
-    tableMappings: ArrowTableMapping[],
+    alias: string,
+    tableMapping: ArrowTableMapping[],
     compression:  ArrowBatchCompression,
 
     logLevel: string,
@@ -54,7 +52,6 @@ const loggingOptions = {
         new WorkerTransport(
             (log: LogEntry) => {
                 parentPort.postMessage({
-                    name: tableName,
                     method: 'workerLog',
                     log
                 });
@@ -62,7 +59,7 @@ const loggingOptions = {
             {})
     ]
 }
-const logger: Logger = loggers.add(`worker-internal-${tableName}`, loggingOptions);
+const logger: Logger = loggers.add(`writer-internal-${alias}`, loggingOptions);
 
 const streamBuffer = Buffer.alloc(streamBufMem);
 logger.info(`write stream buffer of ${streamBufMem.toLocaleString()} bytes allocated!`);
@@ -71,14 +68,14 @@ const intermediateBuffers = {};
 let intermediateSize = 0;
 function _initBuffer() {
     intermediateSize = 0;
-    for (const mapping of tableMappings)
+    for (const mapping of tableMapping)
         intermediateBuffers[mapping.name] = [];
     logger.debug(`initialized buffers for ${Object.keys(intermediateBuffers)}`);
 }
 
 function _generateArrowBatchTable(): Table {
     const arrays = {};
-    for (const mapping of tableMappings)
+    for (const mapping of tableMapping)
         arrays[mapping.name] = getArrayFor(mapping).from(intermediateBuffers[mapping.name]);
     try {
         return tableFromArrays(arrays);
@@ -117,7 +114,7 @@ function flush(msg: WriterControlRequest) {
      *     - startOrdinal: bigint -> root start ordinal of this batch
      *     - lastOrdinal: bigint -> root last ordinal of this batch
      */
-    const fileName = `${alias ?? tableName}.ab${msg.params.unfinished ? '.wip' : ''}`;
+    const fileName = `${alias}.ab${msg.params.unfinished ? '.wip' : ''}`;
     const currentFile = path.join(msg.params.writeDir, fileName);
 
     logger.debug(`generating arrow table from intermediate...`);
@@ -166,7 +163,6 @@ function flush(msg: WriterControlRequest) {
 
             parentPort.postMessage({
                 tid: msg.tid,
-                name: tableName,
                 method: msg.method,
                 status: 'ok',
                 extra: {
@@ -200,17 +196,17 @@ function addRow(msg: WriterControlRequest) {
     /*
      * params: row to write
      */
-    const typedRow = tableMappings.map(
+    const typedRow = tableMapping.map(
         (fieldInfo, index) => {
             try {
-                return encodeRowValue(tableName, fieldInfo, msg.params[index])
+                return encodeRowValue(fieldInfo, msg.params[index])
             } catch (e) {
                 logger.error(`error encoding ${fieldInfo}, ${index}`);
                 throw e;
             }
         });
 
-    tableMappings.forEach(
+    tableMapping.forEach(
         (fieldInfo, index) => {
             const fieldColumn = intermediateBuffers[fieldInfo.name];
             fieldColumn.push(typedRow[index])
@@ -220,7 +216,6 @@ function addRow(msg: WriterControlRequest) {
 
     parentPort.postMessage({
         tid: msg.tid,
-        name: tableName,
         method: msg.method,
         status: 'ok'
     });
@@ -231,14 +226,13 @@ function trim(msg: WriterControlRequest) {
      * params:
      *     - trimIdx: number -> index to delete from <=
      */
-    for (const mapping of tableMappings)
+    for (const mapping of tableMapping)
         intermediateBuffers[mapping.name].splice(msg.params.trimIdx);
 
-    intermediateSize = intermediateBuffers[tableMappings[0].name].length;
+    intermediateSize = intermediateBuffers[tableMapping[0].name].length;
 
     parentPort.postMessage({
         tid: msg.tid,
-        name: tableName,
         method: msg.method,
         status: 'ok'
     });
@@ -253,7 +247,6 @@ _initBuffer();
 parentPort.on('message', (msg: WriterControlRequest) => {
     const resp: WriterControlResponse = {
         tid: msg.tid,
-        name: tableName,
         method: msg.method,
         status: 'ok'
     };

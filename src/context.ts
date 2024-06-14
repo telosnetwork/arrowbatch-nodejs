@@ -4,129 +4,33 @@ import path from "node:path";
 
 import {Logger} from "winston";
 
-import {ArrowTableMapping} from "./protocol.js";
+import {ArrowTableMapping, DEFAULT_ALIAS} from "./protocol.js";
 import {ArrowBatchConfig} from "./types.js";
 
 
-export interface TableBufferInfo {
-    columns: Map<
-        string,  // column name
-        any[]
-    >
-}
-
-export type RowBuffers = Map<
-    string,  // table name
-    TableBufferInfo
->;
-
-export interface ArrowBatchTableDef {
-    map: ArrowTableMapping[],
-    streamSize?: string | number
-}
-
 export interface ArrowBatchContextDef {
-    root: {
-        name?: string;
-        ordinal: string;
-        map: ArrowTableMapping[];
-    },
-    others: {
-        [key: string]: ArrowBatchTableDef
-    }
+    ordinal: string;
+    map: ArrowTableMapping[];
+    alias?: string;
+    stream_size?: number | string;
 }
-
-export interface ReferenceMap {
-    [key: string]: {  // string key is name of table that references
-        parentIndex: number  // column index of parent field
-        parentMapping: ArrowTableMapping  // mapping of parent field
-        childIndex: number   // column index of reference
-        childMapping: ArrowTableMapping  // mapping of child field
-    }
-}
-
-export interface RowWithRefs {
-    row: any[],
-    refs: Map<string, RowWithRefs[]>
-}
-
-export function objectifyRowWithRefs(row: RowWithRefs): object {
-    const refs = {};
-    [...row.refs.entries()].forEach(([key, rows]) => {
-        refs[key] = rows.map(r => objectifyRowWithRefs(r));
-    });
-    return {
-        row: row.row,
-        refs
-    }
-}
-
-export function generateMappingsFromDefs(definition: ArrowBatchContextDef) {
-    const rootOrdField: ArrowTableMapping = {name: definition.root.ordinal, type: 'u64'};
-    const rootMap = [rootOrdField, ...definition.root.map];
-
-    const mappings = {
-        ...definition.others,
-        root: {...definition.root, map: rootMap}
-    };
-
-    // dont allow more than one ref per table
-    for (const [tableName, tableDef] of Object.entries(mappings)) {
-        let refCount = 0;
-        for (const field of tableDef.map)
-            if (field.ref && ++refCount > 1)
-                throw new Error(`Multiple references per table not implemented, table ${tableName}, field ${field.name}`);
-    }
-
-    return new Map<string, ArrowBatchTableDef>(Object.entries(mappings));
-}
-
-export function genereateReferenceMappings(tableName: string, tableMappings: Map<string, ArrowBatchTableDef>): ReferenceMap {
-    const refs: ReferenceMap = {};
-
-    const mapping: ArrowTableMapping[] = tableMappings.get(tableName).map;
-
-    for (const [refName, refMapping] of tableMappings.entries()) {
-        const childIndex = refMapping.map.findIndex(
-            m => m.ref && m.ref.table === tableName);
-
-        if (childIndex != -1) {
-            const childMapping = refMapping.map.at(childIndex);
-            const parentIndex = mapping.findIndex(
-                m => m.name === childMapping.ref.field);
-            const parentMapping = mapping.at(parentIndex);
-
-            refs[refName] = {
-                parentIndex,
-                parentMapping,
-                childIndex,
-                childMapping
-            };
-        }
-
-    }
-
-    return refs;
-}
-
 
 export class ArrowBatchContext {
 
     readonly config: ArrowBatchConfig;
     definition: ArrowBatchContextDef;
     readonly logger: Logger;
+    alias: string = DEFAULT_ALIAS;
+    ordinalIndex: number = 0;
 
     events: EventEmitter = new EventEmitter();
 
-    // updated by reloadOnDiskBuckets, map adjusted num -> table name -> file name
-    tableFileMap: Map<number, Map<string, string>>;
-    wipFilesMap: Map<string, string>;
+    // updated by reloadOnDiskBuckets
+    tableFileMap = new Map<number, string>();
 
     // setup by parsing context definitions, defines data model
-    tableMappings: Map<string, ArrowBatchTableDef>;
-
-    // setup by parsing context definitions, metadata for references in tables
-    refMappings = new Map<string, ReferenceMap>();
+    tableMapping: ArrowTableMapping[];
+    protected wipFile: string;
 
     protected _firstOrdinal: bigint;
     protected _lastOrdinal: bigint;
@@ -140,20 +44,19 @@ export class ArrowBatchContext {
 
         const contextDefsPath = path.join(this.config.dataDir, 'context.json');
         if (existsSync(contextDefsPath)) {
-            const definition = JSON.parse(
-                readFileSync(contextDefsPath).toString());
-
-            this.definition = definition;
-            this.tableMappings = generateMappingsFromDefs(definition);
-            for (const tableName of this.tableMappings.keys())
-                this.refMappings.set(
-                    tableName, genereateReferenceMappings(tableName, this.tableMappings));
+            this.setDataDefs(JSON.parse(
+                readFileSync(contextDefsPath).toString()));
         }
     }
 
-    async init(startOrdinal: number | bigint) {
-        await pfs.mkdir(this.config.dataDir, {recursive: true});
+    setDataDefs(defs: ArrowBatchContextDef) {
+        this.alias = defs.alias ?? DEFAULT_ALIAS;
+        this.ordinalIndex = defs.map.findIndex(mapping => mapping.name === defs.ordinal);
+        this.tableMapping = defs.map;
+        this.definition = defs;
+    }
 
+    async init() {
         await this.reloadOnDiskBuckets();
     }
 
@@ -174,56 +77,11 @@ export class ArrowBatchContext {
         return match ? parseInt(match[0], 10) : NaN;
     }
 
-    private async loadTableFileMap(bucket: string) {
-        const bucketNum = this.bucketToOrdinal(bucket);
-        const bucketFullPath = path.join(this.config.dataDir, bucket);
-        const tableFiles = (
-            await pfs.readdir(
-                path.join(this.config.dataDir, bucket), {withFileTypes: true}))
-            .filter(p => p.isFile() && (p.name.endsWith('.ab')) || p.name.endsWith('.ab.wip'))
-            .map(p => p.name);
-
-        const tableFilesMap = new Map();
-        const wipFilesMap = new Map();
-        for (const tableName of this.tableMappings.keys()) {
-            let name = tableName;
-            if (name === 'root')
-                name = this.definition.root.name;
-
-            const wipFile = tableFiles.find(file => file == `${name}.ab.wip`);
-            if (wipFile) {
-                wipFilesMap.set(
-                    tableName,
-                    path.join(bucketFullPath, wipFile)
-                );
-            }
-
-            const file = tableFiles.find(file => file == `${name}.ab`);
-            if (file) {
-                tableFilesMap.set(
-                    tableName,
-                    path.join(bucketFullPath, file)
-                );
-            }
-        }
-        this.tableFileMap.set(bucketNum, tableFilesMap);
-
-        // if wip files are found in this bucket
-        if (wipFilesMap.size > 0) {
-            // ensure this is the only bucket wip files are found
-            if (this.wipFilesMap.size > 0)
-                throw new Error(
-                    `Found ${wipFilesMap.size} wip files in bucket ` +
-                    `${bucketNum} but had already found wip files in prev bucket!`
-                );
-
-            this.wipFilesMap = wipFilesMap;
-        }
-    }
-
     async reloadOnDiskBuckets() {
+        this.logger.debug(`table map length before reload: ${this.tableFileMap.size}`);
+
         this.tableFileMap = new Map();
-        this.wipFilesMap = new Map();
+        this.wipFile = undefined;
         const sortNameFn = (a: string, b: string) => {
             const aNum = this.bucketToOrdinal(a);
             const bNum = this.bucketToOrdinal(b);
@@ -242,7 +100,26 @@ export class ArrowBatchContext {
             .map(p => p.name)
             .sort(sortNameFn);
 
-        await Promise.all(
-            bucketDirs.map(bucket => this.loadTableFileMap(bucket)));
+        const loadBucket = async (bucketDir: string) => {
+            const bucketNum = this.bucketToOrdinal(bucketDir);
+            const bucketFullPath = path.join(this.config.dataDir, bucketDir);
+            const tableFiles = (
+                await pfs.readdir(
+                    path.join(this.config.dataDir, bucketDir), {withFileTypes: true}))
+                .filter(p => p.isFile() && p.name.startsWith(this.alias))
+                .map(p => p.name);
+
+            const _wipFile = tableFiles.find(file => file.endsWith('.wip'));
+            if (_wipFile)
+                this.wipFile = path.join(bucketFullPath, _wipFile);
+
+            const file = tableFiles.find(file => file.endsWith('.ab'));
+            if (file)
+                this.tableFileMap.set(bucketNum, path.join(bucketFullPath, file));
+        };
+
+        await Promise.all(bucketDirs.map(dir => loadBucket(dir)));
+
+        this.logger.debug(`table map length after reload: ${this.tableFileMap.size}`);
     }
 }
