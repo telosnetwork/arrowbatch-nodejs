@@ -69,9 +69,14 @@ export class ArrowBatchReader extends ArrowBatchContext {
         this._intermediateBuffers = this._createBuffer();
     }
 
-    pushRow(row: any[]) {
+    pushRawRow(row: any[]) {
         for (const [i, mapping] of this.tableMapping.entries())
             this._intermediateBuffers.columns.get(mapping.name).push(decodeRowValue(mapping, row[i]));
+    }
+
+    pushRow(row: any[]) {
+        for (const [i, mapping] of this.tableMapping.entries())
+            this._intermediateBuffers.columns.get(mapping.name).push(row[i]);
     }
 
     async init() {
@@ -102,7 +107,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
 
             // load all rows into ram buffers
             for (let i = 0; i < wipTable.numRows; i++)
-                this.pushRow(wipTable.get(i).toArray());
+                this.pushRawRow(wipTable.get(i).toArray());
         }
 
         // load initial state from disk tables
@@ -288,7 +293,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
         const structRow = table.get(Number(relativeIndex));
 
         if (!structRow)
-            throw new Error(`Could not find row root-${adjustedOrdinal}-${batchIndex}-${relativeIndex}!`);
+            throw new Error(`Could not find row ${ordinal}! ao: ${adjustedOrdinal} bi: ${batchIndex} ri: ${relativeIndex}`);
 
         const row = structRow.toArray();
         this.tableMapping.forEach((m, i) => {
