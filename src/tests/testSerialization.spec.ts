@@ -242,12 +242,24 @@ describe('bytefields encode/decode', () => {
         const decoded = decodeRowValue(fieldInfo, encoded);
         expect(decoded).to.be.deep.equal(value);
     });
-
+});
+describe('struct encode/decode', () => {
     it('should encode and decode struct', () => {
         const fieldInfo: ArrowTableMapping = {name: 'test_struct', type: 'struct'};
         const value = {label: 'this is a testing obj', asd: 10};
         const encoded = encodeRowValue(fieldInfo, value);
         const decoded = decodeRowValue(fieldInfo, encoded);
         expect(decoded).to.be.deep.equal(value);
+    });
+
+    it('should encode and decode array of struct', () => {
+        const fieldInfo: ArrowTableMapping = {name: 'test_struct', type: 'struct', array: true};
+        const values = [];
+        for (let i = 0; i < 3; i++) {
+            values.push({index: i, label: 'this is a testing obj', asd: 10});
+        }
+        const encoded = encodeRowValue(fieldInfo, values);
+        const decoded = decodeRowValue(fieldInfo, encoded);
+        expect(decoded).to.be.deep.equal(values);
     });
 });

@@ -112,8 +112,7 @@ export interface WorkerLogMessage {
 }
 
 export function isWorkerLogMessage(msg: any): msg is WorkerLogMessage {
-    return 'name' in msg &&
-        'method' in msg && msg.method === 'workerLog' &&
+    return 'method' in msg && msg.method === 'workerLog' &&
         'log' in msg;
 }
 

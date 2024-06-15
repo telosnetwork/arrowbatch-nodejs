@@ -432,12 +432,12 @@ export function encodeRowValue(fieldInfo: ArrowTableMapping, value: any) {
             value = nullForType[fieldType];
     }
 
-    // handle normal values
+    // handle array values
     if (fieldInfo.array && Array.isArray(value)) {
-        // const typedValueArray = value.map(
-        //     internalVal =>  encodeRowValue(tableName, fieldInfo, internalVal));
-
         try {
+            if (fieldInfo.type === 'struct')
+                value = value.map(v => extendedStringify(v));
+
             let rlpEncodedArray = RLP.encode(value);
             return Buffer.from(rlpEncodedArray).toString('base64');
         } catch (e) {
@@ -464,7 +464,10 @@ const decodeFunctions = {
     u16: (value: any) => value,
     u32: (value: any) => value,
     u64: (value: any) => value,
-    uintvar: (bytes: string) => {
+    uintvar: (bytes: string | bigint) => {
+        if (typeof bytes === 'bigint')
+            return bytes;
+
         const hex = Buffer.from(bytes, 'base64').toString('hex');
         if (hex.length > 0)
             return BigInt('0x' + hex);
