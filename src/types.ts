@@ -51,8 +51,6 @@ export const ArrowBatchConfigSchema = z.object({
     bucketSize: BigIntSchema.default(DEFAULT_BUCKET_SIZE),
     dumpSize: BigIntSchema.default(DEFAULT_DUMP_SIZE),
     compression: z.nativeEnum(ArrowBatchCompression).default(ArrowBatchCompression.ZSTD),
-
-    writeStreamSize: BufferSizeSchema.default(DEFAULT_STREAM_BUF_MEM)
 });
 
 export type ArrowBatchConfig = z.infer<typeof ArrowBatchConfigSchema>;

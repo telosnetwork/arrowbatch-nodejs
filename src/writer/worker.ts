@@ -94,7 +94,7 @@ function _initDiskBuffer(currentFile: string) {
 }
 
 async function serializeTable(table: Table): Promise<Uint8Array> {
-    const writeStream = new MemoryWriteStream(streamBuffer, DEFAULT_STREAM_BUF_MEM);
+    const writeStream = new MemoryWriteStream(streamBuffer);
     // pipe record batch writer through it
     const blocksWriter = RecordBatchFileWriter.throughNode();
     blocksWriter.pipe(writeStream);

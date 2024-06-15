@@ -8,6 +8,7 @@ import {format, LogEntry, loggers, transports} from "winston";
 import Transport from "winston-transport";
 import {ZSTDCompress} from 'simple-zstd';
 import EventEmitter from "node:events";
+import * as buffer from "buffer";
 
 
 // currentDir == build/ dir
@@ -74,19 +75,17 @@ export async function compressUint8Array(input: Uint8Array, compressionLevel = 3
 
 export class MemoryWriteStream extends Writable {
     private buffer: Uint8Array;
-    private maxSize: number;
     private currentSize: number;
 
-    constructor(buffer: Buffer, maxSize: number) {
+    constructor(buffer: Buffer) {
         super();
-        this.maxSize = maxSize;
         this.buffer = buffer;
         this.currentSize = 0;
     }
 
     _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
-        if (chunk.length + this.currentSize > this.maxSize) {
-            callback(new Error('Buffer overflow'));
+        if (chunk.length + this.currentSize > this.buffer.length) {
+            callback(new Error(`Buffer overflow! need ${chunk.length + this.currentSize} bytes but buffer size is ${this.buffer.length}`));
             return;
         }
 
