@@ -243,7 +243,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             metadata.batches.length - 1].batch.lastOrdinal;
 
         if (ordinal < bucketOrdStart || ordinal > bucketOrdLast)
-            throw new Error(`Bucket does not contain ${ordinal}`);
+            throw new Error(`Ordinal ${ordinal} is not in bucket range (${bucketOrdStart}-${bucketOrdLast}).`);
 
         let batchIndex = 0;
         while (ordinal > metadata.batches[batchIndex].batch.lastOrdinal) {

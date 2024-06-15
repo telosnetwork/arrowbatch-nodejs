@@ -417,7 +417,7 @@ const encodeFunctions = {
         return typedValue.toString('base64');
     },
     struct: (value: any, fieldInfo: ArrowTableMapping) => {
-        return extendedStringify(value);
+        return Buffer.from(extendedStringify(value), 'utf8').toString('base64');
     }
 };
 
@@ -488,7 +488,7 @@ const decodeFunctions = {
     checksum256: (bytes: string) => {
         return Buffer.from(bytes, 'base64').toString('hex');
     },
-    struct: (strObj: string) => JSON.parse(strObj)
+    struct: (bytes: string) => JSON.parse(Buffer.from(bytes, 'base64').toString('utf8'))
 };
 
 export function decodeRowValue(fieldInfo: ArrowTableMapping, value: any) {
