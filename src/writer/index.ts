@@ -52,9 +52,9 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         this.workerLogger = loggers.add('writer', workerLogOptions);
         this.workerLogger.debug(`logger for writer initialized with level ${this.config.writerLogLevel}`);
 
-        let alias = definition.alias ?? DEFAULT_ALIAS;
+        let alias = this.definition.alias ?? DEFAULT_ALIAS;
 
-        let streamBufMem = definition.stream_size ?? DEFAULT_STREAM_BUF_MEM;
+        let streamBufMem = this.definition.stream_size ?? DEFAULT_STREAM_BUF_MEM;
         if (streamBufMem && typeof streamBufMem === 'string')
             streamBufMem = bytes(streamBufMem);
 
@@ -63,7 +63,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
             {
                 workerData: {
                     alias,
-                    tableMapping: definition.map,
+                    tableMapping: this.definition.map,
                     compression: this.config.compression,
                     logLevel: this.config.writerLogLevel,
                     streamBufMem
@@ -310,7 +310,7 @@ export class ArrowBatchWriter extends ArrowBatchReader {
 
         await waitEvent(this.events, 'writer-ready');
     }
-    private async trimOnDisk(ordinal: bigint) {
+    async trimOnDisk(ordinal: bigint) {
         const adjustedOrdinal = this.getOrdinal(ordinal);
 
         // delete every bucket bigger than adjustedOrdinal
@@ -339,15 +339,15 @@ export class ArrowBatchWriter extends ArrowBatchReader {
         const fileName = this.tableFileMap.get(adjustedOrdinal);
         await pfs.truncate(fileName, tableIndexEnd + 1);
 
-        // unwrap adjustedOrdinal:tableIndex table into fresh intermediate
-        this._intermediateBuffers = this._createBuffer();
-        const [table, ___] = await this.cache.getTableFor(ordinal);
+        // // unwrap adjustedOrdinal:tableIndex table into fresh intermediate
+        // this._intermediateBuffers = this._createBuffer();
+        // const [table, ___] = await this.cache.getTableFor(ordinal);
 
-        for (let i = 0; i < table.numRows; i++)
-            this.pushRow(table.get(i).toArray());
+        // for (let i = 0; i < table.numRows; i++)
+        //     this.pushRow(table.get(i).toArray());
 
-        // use trim buffers helper
-        await this.trimOnBuffers(ordinal, this.tableMapping[this.ordinalIndex]);
+        // // use trim buffers helper
+        // await this.trimOnBuffers(ordinal, this.tableMapping[this.ordinalIndex]);
     }
 
     // async trimFrom(ordinal: bigint) {

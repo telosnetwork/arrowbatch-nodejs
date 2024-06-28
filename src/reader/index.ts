@@ -154,6 +154,7 @@ export class ArrowBatchReader extends ArrowBatchContext {
             this.wsClient = new ArrowBatchBroadcastClient({
                 url,
                 logger: this.logger,
+                ordinalIndex: this.ordinalIndex,
                 handlers: {
                     pushRow: (row: any[]) => {
                         this.pushRow(row);

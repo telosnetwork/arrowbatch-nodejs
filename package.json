@@ -19,6 +19,7 @@
     "test-cache": "mocha build/src/tests/testCache.spec.js --timeout=120000",
     "test-rw": "mocha build/src/tests/testRW.spec.js --timeout=120000",
     "test-serial": "mocha build/src/tests/testSerialization.spec.js --timeout=120000",
+    "test-live": "mocha build/src/tests/testLiveMode.spec.js --timeout=120000",
     "coverage": "c8 mocha build/src/tests/test*.spec.js"
   },
   "repository": {

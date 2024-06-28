@@ -6,7 +6,7 @@ import {
 
 describe('liveMode', () => {
 
-    const logger = createLogger('testLive', 'info');
+    const logger = createLogger('testLive', 'debug');
 
     const config: ArrowBatchConfig = ArrowBatchConfigSchema.parse({
         dataDir: '../telosevm-translator/arrow-data',

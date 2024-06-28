@@ -18,6 +18,7 @@ import {DEFAULT_AWK_RANGE} from "../protocol.js";
 export interface BroadcastClientParams {
     url: string,
     logger: Logger,
+    ordinalIndex: number,
     handlers: {
         pushRow: (row: any[]) => void,
         flush: (info: FlushReq['params']) => void
@@ -28,6 +29,7 @@ export interface BroadcastClientParams {
 export class ArrowBatchBroadcastClient {
     private readonly url: string;
     private readonly logger: Logger;
+    private readonly ordinalIndex: number;
 
     private ws: ReconnectingWebSocket;
     private pendingRequests: Map<string, (response: Response) => void>;
@@ -45,6 +47,7 @@ export class ArrowBatchBroadcastClient {
     constructor(params: BroadcastClientParams) {
         this.url = params.url;
         this.logger = params.logger;
+        this.ordinalIndex = params.ordinalIndex;
 
         this.syncAwkRange = BigInt(params.syncAwkRange ?? DEFAULT_AWK_RANGE);
 
@@ -53,7 +56,7 @@ export class ArrowBatchBroadcastClient {
         this.serverMethodHandlers = new Map<string, (request: Request) => void>();
 
         const genericServerRowHandler = (request: SyncRowReq) => {
-            const ordinal = BigInt(request.params.row[0]);
+            const ordinal = BigInt(request.params[this.ordinalIndex]);
             const expected = this.syncTaskInfo.cursor + 1n;
 
             if (ordinal % 1000n == 0n)
