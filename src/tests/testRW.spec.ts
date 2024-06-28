@@ -3,11 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 
 import {
-    ArrowBatchCompression,
     ArrowBatchConfig, ArrowBatchConfigSchema,
     ArrowBatchReader,
     ArrowBatchWriter,
-    createLogger, RowWithRefs, waitEvent
+    createLogger, waitEvent
 } from '../index.js';
 import {randomHexString, TestChainGenerator, testDataContext} from "./utils.js";
 import {expect} from "chai";
@@ -40,16 +39,15 @@ describe('read/write', () => {
         fs.rmSync(config.dataDir, { recursive: true });
     });
 
-    const readRange = async (from: number, to: number): Promise<RowWithRefs[]> => {
+    const readRange = async (from: number, to: number): Promise<any[]> => {
         const reader = new ArrowBatchReader(config, testDataContext, logger);
-        await reader.init(startBlock);
+        await reader.init();
 
         const blocks = [];
 
-        for await (const row of reader.iter({
-            from: BigInt(from), to: BigInt(to)
-        }))
-            blocks.push(row);
+        for (let i = from; i <= to; i++)
+            blocks.push((
+                await reader.getRow(BigInt(i))));
 
         return blocks;
     };
@@ -84,7 +82,7 @@ describe('read/write', () => {
 
     it('write first batch', async () => {
         const batchStart = Number(startBlock);
-        const batchEnd = Number(startBlock + dumpSize - 1n);
+        const batchEnd = Number(startBlock + dumpSize) - 1;
 
         // writer.init should create the datadir and dump the data definitions
         expect(fs.existsSync(writer.config.dataDir)).to.be.true;
@@ -96,14 +94,10 @@ describe('read/write', () => {
 
         // wip bucket should be created & blocks file be present
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab'))).to.be.true;
 
         // no wip blocks file should exist, we wrote full batch
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab.wip'))).to.be.false;
 
         // no blocks should remain on RAM buffers
         expect(writer.intermediateSize).to.be.equal(0);
@@ -134,12 +128,8 @@ describe('read/write', () => {
 
         // wip bucket, block file with first batch & block wip file should be present
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab.wip'))).to.be.true;
 
         // no blocks should remain on RAM buffers
         expect(writer.intermediateSize).to.be.equal(0);
@@ -163,14 +153,10 @@ describe('read/write', () => {
 
         // wip bucket should be created & blocks file be present
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab'))).to.be.true;
 
         // no wip blocks file should exist, we wrote full batch
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab.wip'))).to.be.false;
 
         // no blocks should remain on RAM buffers
         expect(writer.intermediateSize).to.be.equal(0);
@@ -200,23 +186,15 @@ describe('read/write', () => {
         // prev bucket should be 100% done
         const startBucket = startWipBucket.replace('.wip', '');
         expect(fs.existsSync(startBucket)).to.be.true;
-        expect(fs.existsSync(path.join(startBucket, 'block.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(startBucket, 'tx.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(startBucket, 'tx_log.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(startBucket, 'blocks.ab'))).to.be.true;
 
-        expect(fs.existsSync(path.join(startBucket, 'block.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(startBucket, 'tx.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(startBucket, 'tx_log.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(startBucket, 'blocks.ab.wip'))).to.be.false;
 
         // current wip bucket should have all table files
         expect(fs.existsSync(writer.wipBucketPath)).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab'))).to.be.true;
 
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.false;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.false;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab.wip'))).to.be.false;
 
         expect(writer.lastOrdinal).to.be.equal(BigInt(endBlock - 1n));
 
@@ -233,9 +211,7 @@ describe('read/write', () => {
         expect(writer.wipBucketPath).to.not.be.equal(lastWipBucket);
 
         // wip table files should exist
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'block.ab.wip'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx.ab.wip'))).to.be.true;
-        expect(fs.existsSync(path.join(writer.wipBucketPath, 'tx_log.ab.wip'))).to.be.true;
+        expect(fs.existsSync(path.join(writer.wipBucketPath, 'blocks.ab.wip'))).to.be.true;
     });
 
     it('full read & compare', async () => {

@@ -5,6 +5,7 @@ import {
     ArrowBatchConfig,
     ArrowBatchConfigSchema,
     ArrowBatchReader,
+    ArrowBatchWriter,
     createLogger,
     extendedStringify, humanizeByteSize,
     packageInfo
@@ -12,10 +13,11 @@ import {
 import * as process from "node:process";
 import * as console from "node:console";
 import fastFolderSizeSync from "fast-folder-size/sync.js";
+import {Logger} from "winston";
 
-async function readerFromCLIOpts(options: {
+function contextFromCLIOpts(options: {
     config: string, dataDir: string
-}): Promise<ArrowBatchReader> {
+}): [ArrowBatchConfig, Logger] {
     let config: ArrowBatchConfig;
     if (options.config) {
         // Check if the config file exists
@@ -43,10 +45,26 @@ async function readerFromCLIOpts(options: {
     }
 
     const logger = createLogger('ab-cli', 'info');
-    const reader = new ArrowBatchReader(config, undefined, logger);
-    await reader.init(0n);
 
+    return [config, logger]
+}
+
+async function readerFromCLIOpts(options: {
+    config: string, dataDir: string
+}): Promise<ArrowBatchReader> {
+    const [config, logger] = contextFromCLIOpts(options);
+    const reader = new ArrowBatchReader(config, undefined, logger);
+    await reader.init();
     return reader;
+}
+
+async function writerFromCLIOpts(options: {
+    config: string, dataDir: string
+}): Promise<ArrowBatchWriter> {
+    const [config, logger] = contextFromCLIOpts(options);
+    const writer = new ArrowBatchWriter(config, undefined, logger);
+    await writer.init();
+    return writer;
 }
 
 program
@@ -98,6 +116,16 @@ program
         const row = await reader.getRow(BigInt(ordinal));
 
         console.log(extendedStringify(row, 4));
+    });
+
+program
+    .command('trim <ordinal>')
+    .description('Trim data from ordinal')
+    .option('-c, --config <configFile>', 'Path to the config file', undefined)
+    .option('-d, --data-dir <dataDir>', 'Path to data directory, generate config dynamically', undefined)
+    .action(async (ordinal: string, options: {config: string, dataDir: string}) => {
+        const writer = await writerFromCLIOpts(options);
+        await writer.trimOnDisk(BigInt(ordinal));
     });
 
 program.parse(process.argv);

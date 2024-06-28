@@ -8,6 +8,7 @@ import {format, LogEntry, loggers, transports} from "winston";
 import Transport from "winston-transport";
 import {ZSTDCompress} from 'simple-zstd';
 import EventEmitter from "node:events";
+import * as buffer from "buffer";
 
 
 // currentDir == build/ dir
@@ -17,6 +18,8 @@ export const SRC_DIR = path.join(ROOT_DIR, 'src');
 
 const packageJsonFile = path.join(ROOT_DIR, 'package.json');
 export const packageInfo = JSON.parse(fs.readFileSync(packageJsonFile, 'utf-8'));
+
+export const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 export function bigintToUint8Array (big: bigint): Uint8Array {
     const byteArray = new Uint8Array(8);
@@ -72,19 +75,17 @@ export async function compressUint8Array(input: Uint8Array, compressionLevel = 3
 
 export class MemoryWriteStream extends Writable {
     private buffer: Uint8Array;
-    private maxSize: number;
     private currentSize: number;
 
-    constructor(buffer: Buffer, maxSize: number) {
+    constructor(buffer: Buffer) {
         super();
-        this.maxSize = maxSize;
         this.buffer = buffer;
         this.currentSize = 0;
     }
 
     _write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void): void {
-        if (chunk.length + this.currentSize > this.maxSize) {
-            callback(new Error('Buffer overflow'));
+        if (chunk.length + this.currentSize > this.buffer.length) {
+            callback(new Error(`Buffer overflow! need ${chunk.length + this.currentSize} bytes but buffer size is ${this.buffer.length}`));
             return;
         }
 
@@ -110,8 +111,7 @@ export interface WorkerLogMessage {
 }
 
 export function isWorkerLogMessage(msg: any): msg is WorkerLogMessage {
-    return 'name' in msg &&
-        'method' in msg && msg.method === 'workerLog' &&
+    return 'method' in msg && msg.method === 'workerLog' &&
         'log' in msg;
 }
 
@@ -160,7 +160,7 @@ export function extendedStringify(obj: any, indent?: number): string {
         if (typeof value === "bigint") {
             return value.toString();
         } else if (typeof value === "object" && (value.type === "Buffer" || value instanceof Uint8Array)) {
-            return Buffer.from(value).toString('hex')
+            return Buffer.from(value).toString('base64')
         }
         return value;
     }, indent)
