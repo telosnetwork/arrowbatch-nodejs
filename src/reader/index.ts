@@ -113,11 +113,10 @@ export class ArrowBatchReader extends ArrowBatchContext {
         // load initial state from disk tables
         if (this.tableFileMap.size > 0) {
             const lowestBucket = [...this.tableFileMap.keys()]
-                .sort()[0];
+                .sort((a, b) => a - b)[0];
 
             const highestBucket = [...this.tableFileMap.keys()]
-                .sort()
-                .reverse()[0];
+                .sort((a, b) => b - a)[0];
 
             const rootFirstPath = this.tableFileMap.get(lowestBucket);
             const firstMetadata = (await ArrowBatchProtocol.readFileMetadata(rootFirstPath)).batches[0];
